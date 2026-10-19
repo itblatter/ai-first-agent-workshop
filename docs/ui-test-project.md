@@ -6,12 +6,12 @@
 
 - Новая локальная копия: `D:\Users\Mishon\Documents\repo\ai-first-agent-workshop`, ветка `main`; `origin` — `https://github.com/itblatter/ai-first-agent-workshop.git`.
 - Старая `.git` с 34 коммитами не переносилась. Исходный проект и его `origin` не изменены.
-- GitHub CLI 2.102.0 установлен отдельно в пользовательский каталог без администратора и изменения PATH; ZIP проверен по SHA-256 из официального релиза. Браузерный вход завершён: активный личный аккаунт `itblatter` (ID `190561847`), авторизация хранится в системном keyring, не в проекте. Git Credential Manager сохранён без изменений.
-- Не переносились `build/`, `.gradle/`, `.tools/`, `.devin/` и локальные настройки. Evidence фаз 0–4 и первоначальных проверок workflow остаются в исходном проекте. При повторной сверке новой копии созданы только локальные файлы компиляции и проверки в игнорируемых `build/` и `.gradle/`; новых UI-прогонов, Allure results и отчётов нет.
+- GitHub CLI 2.102.0 установлен отдельно в пользовательский каталог без администратора и изменения PATH; ZIP проверен по SHA-256 из официального релиза. Активный личный аккаунт — `itblatter` (ID `190561847`). После отдельного разрешения и браузерного подтверждения добавлен scope `workflow`; авторизация хранится в системном keyring, не в проекте. Git Credential Manager и глобальный Git config сохранены без изменений; push использовал helper GitHub CLI только для конкретной команды.
+- Не переносились `build/`, `.gradle/`, `.tools/`, `.devin/` и локальные настройки. Evidence фаз 0–4 остаются в исходном проекте. В новой копии выполнены локальные проверки и скачаны артефакты двух реальных CI-прогонов в игнорируемый `build/phase5-ci/`; они не коммитятся.
 - До копирования выполнен ограниченный поиск типовых GitHub/AWS-токенов и приватных ключей в текстовых файлах; совпадений нет. Это не исчерпывающий аудит секретов и не разрешение на push.
 - Аккаунт проверен через GitHub API. По отдельному подтверждению пользователя только в `.git/config` новой копии настроены `Daniil Ruban`, `190561847+itblatter@users.noreply.github.com` и `user.useConfigOnly=true`. Глобальные имя/email не менялись; noreply email — публичные метаданные автора, не credential.
-- После отдельного подтверждения создан пустой публичный репозиторий https://github.com/itblatter/ai-first-agent-workshop, не fork. GitHub API подтвердил владельца `itblatter`, единственного collaborator `itblatter`, 0 веток и 0 запусков Actions. Contributors появятся только после коммитов; чужая история не импортировалась.
-- Пользователь отдельно разрешил первый коммит из 14 файлов, push `main`, успешный и контролируемо упавший CI на ветке `ci/phase5-controlled-failure` и удаление только этой временной ветки после проверки. Push, CI, Pages и загрузка файлов в GitHub ещё не выполнены: для отправки workflow нужно отдельно подтвердить расширение OAuth scope. Авторизация остаётся в системном keyring; пароли, токены и приватные ключи в проект и публичный репозиторий не добавлялись.
+- После отдельного подтверждения создан публичный репозиторий https://github.com/itblatter/ai-first-agent-workshop, не fork. При создании он был пуст; владелец и единственный collaborator — `itblatter`. После CI API Contributors также подтвердил только `itblatter`. Чужая история не импортировалась.
+- Согласованный финальный этап выполнен: первый коммит из 14 файлов `5f1890f45711af3d7beb60f486c2c63eabd350ba`, push `main`, успешный и контролируемо упавший CI, проверка скачанных артефактов. Временная ветка `ci/phase5-controlled-failure` с коммитом `12040c700620bcdea46f2ed6803a413831a6e859` удалена локально и на GitHub только после проверки. В `main` её изменения не переносились. Pages и Telegram не настраивались; пароли, токены и приватные ключи в проект и публичный репозиторий не добавлялись.
 - Новая история коммитов не переопределяет авторство исходного кода и не отменяет применимые лицензии. Происхождение проекта: `qa-guru/getting-started-java`.
 
 Выполнено из новой копии после подтверждения пользователя:
@@ -47,7 +47,7 @@ git remote add origin https://github.com/itblatter/ai-first-agent-workshop.git
 | 2. Дополнительные тесты | Завершена по отчёту | Код и предоставленный отчёт фазы 2 |
 | 3. Page Object | Завершена по отчёту | Код, отчёт фазы 3 и существующий JUnit XML |
 | 4. Allure Report 2 | Принята по отчёту; переход к фазе 5 подтверждён | Согласованная замена Report 3; успешный и контролируемо упавший прогоны, генерация и проверка UI отчётов |
-| 5. GitHub Actions | Выполнена локальная часть; фаза не завершена, реальный CI не проверен | `.github/workflows/ci.yml`; offline-компиляция и dry-run новой копии, проверки генерации на сохранённых результатах исходного проекта |
+| 5. GitHub Actions | Завершена 2026-10-19 | Реальные runs 39290188719 и 39290946678; зелёный/красный job, все шесть артефактов скачаны и проверены, временная ветка удалена |
 | 6. Telegram | Не реализована; бот и чат готовы по ответу пользователя | Уведомления не настраивались |
 | 7. Jenkins | Не реализована; инфраструктуры пока нет | Окружение агента ещё не согласовано |
 | 8. Итоговая проверка и README | Не выполнена | README и итоговой проверки нет |
@@ -244,7 +244,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned -Force
 
 ## Фаза 5 — GitHub Actions
 
-Статус: локальная часть выполнена, фаза не завершена. `.github/workflows/ci.yml` подготовлен и проверен локально 2026-10-19; проведена повторная сверка новой копии с исходным заданием. Пользователь подтвердил технический вариант A и общие настройки; имя файла изменено на `ci.yml` по его запросу. Реального запуска GitHub Actions и GitHub-артефактов пока нет. Подготовленный YAML не означает проверенный CI.
+Статус: завершена 2026-10-19. `.github/workflows/ci.yml` проверен локально и двумя реальными ручными запусками: успешным на `main` и контролируемо упавшим на временной ветке. Во втором job остался красным, а все шаги сохранения диагностики и генерации прошли успешно. Все шесть артефактов скачаны и проверены. Подтверждённый результат относится к CI, а не только к наличию YAML. Пользователь подтвердил технический вариант A и имя файла `ci.yml`.
 
 - [x] Согласовать только `workflow_dispatch`, `windows-2022`, Temurin JDK 21 и подбор драйвера Selenium Manager.
 - [x] Подготовить headless-запуск через существующий Wrapper непосредственно на runner, без Grid, Selenoid и browser cloud.
@@ -255,9 +255,10 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned -Force
 - [x] Подтвердить и настроить имя/email автора только в новой локальной копии.
 - [x] По отдельному подтверждению создать пустой публичный GitHub-репозиторий и подключить его как `origin` новой копии.
 - [x] Отдельно согласовать 14 файлов первого коммита, commit/push, два реальных запуска и удаление только временной ветки проверки; проверить публикуемые файлы на типовые секреты.
-- [ ] Выполнить push `main` после отдельного подтверждения необходимой OAuth-авторизации для workflow.
-- [ ] Проверить успешный CI и контролируемое падение с сохранёнными артефактами; временный тест не оставлять в основном наборе.
-- [ ] Реализовать GitHub Pages отдельным подэтапом после отдельного разрешения; согласована публикация только успешных прогонов.
+- [x] Выполнить push `main` после отдельного подтверждения необходимой OAuth-авторизации для workflow.
+- [x] Проверить успешный CI и контролируемое падение с сохранёнными артефактами; временные изменения не оставлять в основном наборе.
+- [x] Удалить согласованную временную ветку локально и на GitHub, восстановить исходный тест и его compiled class.
+- [ ] GitHub Pages — отдельный подэтап, не критерий завершения текущего CI-этапа; требуется отдельное разрешение, согласована публикация только успешных прогонов.
 
 ### Решения
 
@@ -340,23 +341,23 @@ git -c core.autocrlf=false diff --no-index --check -- NUL docs/ui-test-project.m
 
 ### Повторная сверка с исходным заданием
 
-2026-10-19 по запросу пользователя повторно проверены исходный промпт, текущие файлы и Git, состояние публичного репозитория и ограничения разрешений. На момент этой сверки commit, push и CI были запрещены. Затем пользователь отдельно разрешил перечисленный финальный этап; расширение OAuth scope GitHub CLI по-прежнему требует отдельного подтверждения.
+2026-10-19 по запросу пользователя повторно проверены исходный промпт, файлы и Git, состояние публичного репозитория и разрешения. После локальной сверки пользователь отдельно разрешил commit/push, оба CI-прогона и удаление временной ветки; затем отдельно подтвердил добавление OAuth scope `workflow` через браузер. Все согласованные действия выполнены без расширения permissions тестового job.
 
 | Пункт исходного задания | Фактическое состояние |
 |---|---|
 | 1. Проверить файлы и установщик, согласовать решения | Выполнено; вариант A и общие настройки подтверждены, официальный installer переиспользуется без второй реализации |
-| 2. Подготовить workflow | Выполнено локально: Windows runner, JDK 21, Chrome/Selenium Manager, headless, Wrapper и четыре JVM-свойства, минимальные permissions, timeout и кеш |
-| 3. Сохранить диагностику без маскировки ошибки | Реализовано в YAML; локальные сценарии генерации проверены. Загрузки артефактов при реальном падении ещё не проверены |
-| 4. Проверить локально и затем в GitHub Actions | Локальная часть выполнена; разрешение на commit/push и два запуска получено. Отправка YAML ожидает дополнительного согласования OAuth scope |
-| 5. Обновить план | Статусы, решения, команды, проверки и ограничения обновлены; фаза не помечена завершённой |
-| 6. Показать файлы, проверки, CI и артефакты | GitHub API повторно подтвердил 0 workflows, 0 runs и 0 artifacts; доступного CI-отчёта нет |
+| 2. Подготовить workflow | Проверено в GitHub: Windows runner, JDK 21, Chrome/Selenium Manager, headless, Wrapper, параметры, permissions, timeout и кеш |
+| 3. Сохранить диагностику без маскировки ошибки | В failed-run тестовый шаг и job — failure; raw/JUnit/HTML/report uploads и генерация — success |
+| 4. Проверить локально и затем в GitHub Actions | Выполнено: два реальных запуска, оба attempt 1, без перезапуска тестов; временная ветка удалена |
+| 5. Обновить план | Обновлены статусы, решения, команды, фактические результаты и оставшиеся ограничения |
+| 6. Показать файлы, проверки, CI и артефакты | Подтверждены один workflow, два runs и шесть доступных артефактов; ссылки и сроки хранения приведены ниже |
 
 Найдены и исправлены два локальных недочёта:
 
 - Воспроизведён приём `browserSize="1920x1080\n"`: .NET-якорь `$` допускает совпадение перед завершающим LF. В workflow заменены якоря на `\A` и `\z`. Проверен именно извлечённый YAML-блок, а не отдельная реализация валидатора.
-- В `.gitignore` не было защиты для `.env`, локального `config.local.json` и типовых приватных ключей/контейнеров. Добавлены исключения; `.env.example` разрешён только как возможный шаблон. Файла с секретами не обнаружено и в GitHub ничего не отправлялось. `.gitignore` не заменяет проверку публикуемого содержимого.
+- В `.gitignore` не было защиты для `.env`, локального `config.local.json` и типовых приватных ключей/контейнеров. Добавлены исключения; `.env.example` разрешён только как возможный шаблон. На этапе этой проверки секретов не обнаружено, push ещё не выполнялся. Затем отдельно проверены staged-файлы перед публикацией и скачанные артефакты. `.gitignore` не заменяет проверку содержимого.
 
-Новые проверки выполнены в `D:\Users\Mishon\Documents\repo\ai-first-agent-workshop` без сети для Gradle и без открытия браузера тестами:
+Локальные проверки до первых CI-прогонов выполнены в `D:\Users\Mishon\Documents\repo\ai-first-agent-workshop` без сети для Gradle и без открытия браузера тестами:
 
 | Проверка | Результат новой сверки |
 |---|---|
@@ -387,20 +388,89 @@ git check-ignore --no-index .env .env.local config.local.json private.key privat
 
 Дополнительно выполнены PowerShell-проверки непосредственно извлечённых блоков и Python assertions структуры/условий/секретов. Новые локальные evidence: `build/phase5-audit/workflow-before.json`, `workflow.json`, `input-scenarios.json`, `audit-checks.json`, `compile.log`, `gradle-dry-run.log`. Они игнорируются Git, не являются CI-артефактами и не публиковались.
 
-Для завершения фазы согласованы первый коммит от подтверждённого автора, push `main`, один успешный dispatch и один dispatch с контролируемым падением на ветке `ci/phase5-controlled-failure`, проверка скачанных артефактов и красного статуса job, затем удаление только этой временной ветки локально и на GitHub. Дополнительная OAuth-авторизация ещё не согласована; Pages и Telegram остаются вне текущего подэтапа.
+Согласованный финальный этап выполнен: первый коммит и push `main`, один успешный dispatch и один dispatch с контролируемым падением, проверка скачанных артефактов и красного статуса job, затем удаление только согласованной временной ветки. Дополнительный scope `workflow` был запрошен только после отдельного разрешения пользователя и подтверждён им в браузере; авторизация остаётся в keyring. Pages и Telegram остаются вне текущего подэтапа.
 
-Перед первым коммитом повторно проверен официальный SHA-256 `gradle-wrapper.jar` для 9.2.0: `423cb469ccc0ecc31f0e4e1c309976198ccb734cdcbb7029d4bda0f18f57e8d9`, локальный файл совпал с [официальной контрольной суммой](https://services.gradle.org/distributions/gradle-9.2.0-wrapper.jar.sha256). Git Credential Manager не содержит сохранённых GitHub-аккаунтов. Единственная текущая авторизация — GitHub CLI с scopes `gist`, `read:org`, `repo`, без `workflow`; расширение прав не выполнялось автоматически.
+Перед первым коммитом повторно проверен официальный SHA-256 `gradle-wrapper.jar` для 9.2.0: `423cb469ccc0ecc31f0e4e1c309976198ccb734cdcbb7029d4bda0f18f57e8d9`, локальный файл совпал с [официальной контрольной суммой](https://services.gradle.org/distributions/gradle-9.2.0-wrapper.jar.sha256). Git Credential Manager не содержит сохранённых GitHub-аккаунтов. Для push использовалась отдельно авторизованная GitHub CLI-учётная запись `itblatter` с scopes `gist`, `read:org`, `repo`, `workflow`; токен не записывался в URL, Git config или файлы проекта.
+
+### Реальная приёмка GitHub Actions
+
+Оба запуска выполнены вручную, каждый с `attempt=1`; автоматических и ручных повторов тестов ради зелёного результата не было.
+
+| Сценарий | Run / SHA | Параметры | JUnit XML и Allure summary | Job |
+|---|---|---|---|---|
+| Успешный `main` | [39290188719](https://github.com/itblatter/ai-first-agent-workshop/actions/runs/39290188719), `5f1890f45711af3d7beb60f486c2c63eabd350ba` | `chrome`, `1920x1080`, headless | 3 tests, 3 passed, 0 failures/errors/skipped; JUnit time 21.362 s | success |
+| Контролируемое падение | [39290946678](https://github.com/itblatter/ai-first-agent-workshop/actions/runs/39290946678), `12040c700620bcdea46f2ed6803a413831a6e859` | `chrome`, `1366x768`, headless | 3 tests, 2 passed, 1 failed, 0 errors/skipped; JUnit time 24.460 s | failure |
+
+В CI подтверждены `windows-2022`, Temurin JDK 21 (tool-cache `21.0.12-101.0`) и Allure Report 2.46.1 из существующего установщика. Создание Chrome-сессий и прохождение тестов подтверждают работоспособность пары Chrome/ChromeDriver, подобранной Selenium Manager. В JUnit stderr виден Chrome/CDP major 155; точные patch-версии Chrome и ChromeDriver отдельно в workflow не печатаются и здесь не заявляются закреплёнными.
+
+Для контролируемого падения только на временной ветке изменён `successfulSearchTest`: в browser console записан маркер `CI_PHASE5_CONTROLLED_FAILURE`, а ожидаемый текст заменён на заведомо отсутствующий `CI_PHASE5_EXPECTED_MISSING_7F31`. Это ошибка Selenide assertion, а не падение до открытия браузера или HTTP 429. Скриншот визуально показывает результаты поиска GitHub и гостевые Sign in / Sign up.
+
+Фактические исходы шагов во втором run:
+
+| Шаг | Conclusion |
+|---|---|
+| Run UI tests | failure, exit code 1 |
+| Upload Allure results and attachments | success |
+| Upload JUnit XML and Gradle HTML | success |
+| Generate Allure report | success |
+| Upload generated Allure report | success |
+| Итог job | failure |
+
+Сохранены и проверены PNG 107087 байт, HTML page source 248918 байт и browser log 83 байта с искусственным маркером. Все три исходных вложения побайтово совпадают с файлами в `allure-report/data/attachments`, проверено SHA-256. Пользовательские шаги присутствуют во всех трёх результатах. Failed-step завершился в `1792429504961`, `closeBrowser` начался в `1792429504976`: вложения сохранены до teardown.
+
+PNG имеет размер 1350x673 при запросе внешнего окна 1366x768. Первоначальная локальная проверка ошибочно требовала равенства ширины PNG и окна; исправлен только скрипт проверки в игнорируемом `build/`. WebDriver снимает viewport, тогда как window rect задаёт `outerWidth`/`outerHeight`; см. [спецификацию WebDriver](https://www.w3.org/TR/webdriver/). Workflow, Chrome flags и тестовые ожидания на `main` для обхода этого различия не менялись; CI не перезапускался.
+
+### Доступность артефактов
+
+Все шесть артефактов скачаны через `gh run download` и проверены: ровно три `*-result.json` на run, корректные JUnit XML, Gradle HTML, `allure-report/index.html`, статистика и вложения. Ограниченный поиск типовых секретов в текстовых файлах обоих наборов не дал совпадений; это не исчерпывающий аудит всех возможных секретов.
+
+| Run | Артефакт GitHub | Доступен до, UTC |
+|---|---|---|
+| 39290188719 | [allure-results](https://github.com/itblatter/ai-first-agent-workshop/actions/runs/39290188719/artifacts/12204868524) | 2026-10-26 17:00:11 |
+| 39290188719 | [gradle-test-reports](https://github.com/itblatter/ai-first-agent-workshop/actions/runs/39290188719/artifacts/12204582625) | 2026-10-26 17:00:12 |
+| 39290188719 | [allure-report](https://github.com/itblatter/ai-first-agent-workshop/actions/runs/39290188719/artifacts/12205645882) | 2026-10-26 17:00:15 |
+| 39290946678 | [allure-results](https://github.com/itblatter/ai-first-agent-workshop/actions/runs/39290946678/artifacts/12204334062) | 2026-10-26 17:05:15 |
+| 39290946678 | [gradle-test-reports](https://github.com/itblatter/ai-first-agent-workshop/actions/runs/39290946678/artifacts/12204079378) | 2026-10-26 17:05:17 |
+| 39290946678 | [allure-report](https://github.com/itblatter/ai-first-agent-workshop/actions/runs/39290946678/artifacts/12206295248) | 2026-10-26 17:05:21 |
+
+Срок хранения — 7 дней. Для failed-run API `expires_at` на 1–2 секунды раньше `created_at + 7 дней`; фактические сроки приведены в таблице, а не объявлены равными с точностью до секунды. Это артефакты GitHub Actions, не опубликованный сайт; скачивание может требовать входа в GitHub.
+
+Локальные скачанные копии и проверки: `build/phase5-ci/success/`, `failure/`, `success-run.json`, `failure-run.json`, `*-artifacts.json`, `*-run.log`, `failure-diagnostics.json`, `cleanup.json`. Файлы `verification.json` внутри обоих наборов — локальные результаты проверки, не содержимое GitHub-артефактов. Эти пути не являются ссылками на GitHub.
+
+Основные фактические команды внешней приёмки:
+
+```powershell
+$gh = "$env:LOCALAPPDATA\Programs\GitHubCLI\2.102.0\bin\gh.exe"
+& $gh auth refresh --hostname github.com --scopes workflow
+& $gh workflow run ci.yml --repo itblatter/ai-first-agent-workshop --ref main -f browser=chrome -f browserSize=1920x1080
+& $gh run watch 39290188719 --repo itblatter/ai-first-agent-workshop --interval 15 --exit-status
+& $gh run download 39290188719 --repo itblatter/ai-first-agent-workshop --dir build/phase5-ci/success
+python build/phase5-ci/check_artifacts.py build/phase5-ci/success --failed 0
+& $gh workflow run ci.yml --repo itblatter/ai-first-agent-workshop --ref ci/phase5-controlled-failure -f browser=chrome -f browserSize=1366x768
+& $gh run watch 39290946678 --repo itblatter/ai-first-agent-workshop --interval 15 --exit-status
+& $gh run download 39290946678 --repo itblatter/ai-first-agent-workshop --dir build/phase5-ci/failure
+python build/phase5-ci/check_artifacts.py build/phase5-ci/failure --failed 1 --browser-width 1366
+git switch main
+.\gradlew.bat --offline --no-daemon --console=plain testClasses
+git branch -D ci/phase5-controlled-failure
+```
+
+Второй `run watch --exit-status` вернул 1, как и должен для failed job; exit code тестов не подавлялся. Push `main`, push и удаление временной удалённой ветки выполнялись с GitHub CLI credential helper через `git -c` только для конкретной команды, без изменения глобальных helpers и без токена в аргументах. После проверки удалена только `ci/phase5-controlled-failure` локально и на GitHub; осталась `main`.
+
+Исходный `SearchTests.java` восстановлен побайтово: SHA-256 `3ef9a5c8fd35960ba8c78c423a060b8fc5474a5f685e7938350c519c8134929f`. Повторная offline-компиляция `testClasses` прошла; маркеров probe нет ни в исходнике, ни в compiled class. Итоговый коммит после CI меняет только этот план: workflow, build и тестовый код идентичны успешно проверенному `5f1890f`. Из-за documentation-only изменения третий CI не запускался.
 
 ### Непроверенное и ограничения
 
-- `actionlint` и PowerShell 7 локально не установлены; использованы YAML-парсер, структурные assertions и Windows PowerShell 5.1. Полная семантическая проверка GitHub Actions и выполнение на `pwsh` runner остаются непроверенными.
-- Chrome/ChromeDriver в CI, доступ к Maven/CfT, квоты, фактические загрузки/скачивание артефактов и оба реальных прогона Actions ещё не проверены. Локальные отчёты построены из сохранённых результатов, не из новых тестовых запусков.
-- Git push ещё не проверен. У текущей авторизации GitHub CLI scopes `gist`, `read:org`, `repo`, без `workflow`; при использовании её для push YAML потребуется отдельно подтвердить дополнительную авторизацию. Scope не расширялся, токен не выводился и в проект не помещался.
+- `actionlint` и PowerShell 7 локально не установлены; локально использованы YAML-парсер, assertions и Windows PowerShell 5.1. Сам GitHub Actions и `pwsh` на Windows runner проверены реальными запусками, но это не исчерпывающая проверка всех возможных условий.
+- Chrome/ChromeDriver, Maven/CfT, Allure CLI, генерация и загрузка/скачивание всех артефактов проверены в двух runs. Доступность внешних сервисов и квоты при следующем запуске не гарантируются; точные patch-версии браузера/драйвера не закреплены.
+- Отдельные CI-прогоны compile-fail, no-results и намеренно сломанного генератора не выполнялись. Отсутствие результатов и ошибки CLI проверены локальными сценариями; raw uploads расположены до генерации. Внешняя приёмка охватывает требуемые success и assertion-failure.
+- В JUnit stderr сохранено неблокирующее предупреждение CDP 155 → 153. Стек ради SLF4J/CDP-предупреждений не обновлялся; скриншот, page source и browser log работают.
 - Обычное падение теста обрабатывается отдельно от отмены, потери runner и общего job timeout: при последних сохранение артефактов не гарантируется.
 - Подбор драйвера зависит от сети и версии Chrome в обновляемом образе. Ручной запуск уменьшает число прогонов, но не устраняет риск HTTP 429 и изменяемость данных живого github.com.
-- Для dispatch workflow должен существовать в default branch. Новый публичный GitHub-репозиторий создан, но пуст: workflow ещё не загружен. В новой локальной копии подключён собственный `origin`; `origin` исходного проекта по-прежнему указывает на `qa-guru/getting-started-java`.
+- Workflow зарегистрирован в default branch `main`; временная ветка удалена. В новой копии используется собственный `origin`; `origin` исходного проекта по-прежнему указывает на `qa-guru/getting-started-java`.
 - Тестам секреты не нужны. Для будущих fork PR секреты по умолчанию не передаются, `GITHUB_TOKEN` ограничен чтением и запуск может требовать одобрения. `pull_request_target` не используется.
-- Pages пока не реализован: будущие `pages: write` / `id-token: write` относятся только к отдельному job публикации. Публичный репозиторий пока пуст; настройки Pages, push, workflow dispatch и Telegram не выполнялись.
+- Авторизация GitHub CLI хранится в системном keyring; scopes `gist`, `read:org`, `repo`, `workflow` подтверждены пользователем. В тестовый job эти локальные креды не передаются; job имеет только `contents: read` и обязательное системное `metadata: read`.
+- Pages пока не реализован: будущие `pages: write` / `id-token: write` относятся только к отдельному job публикации и потребуют отдельного разрешения. Настройки Pages и Telegram не менялись. К фазе 6 не переходили.
 
 Официальные источники: [checkout v7.0.1](https://github.com/actions/checkout/tree/v7.0.1), [setup-java v6.1.0 и кеш](https://github.com/actions/setup-java/tree/v6.1.0), [upload-artifact v7.0.2](https://github.com/actions/upload-artifact/tree/v7.0.2), [состав Windows runner](https://github.com/actions/runner-images/blob/main/images/windows/Windows2022-Readme.md), [Selenium Manager](https://www.selenium.dev/documentation/selenium_manager/), [ручной запуск](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow), [status check functions](https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#status-check-functions), [ограничения fork PR](https://docs.github.com/en/actions/concepts/security/compromised-runners).
 
