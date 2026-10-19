@@ -23,6 +23,9 @@ jobs:
   ui-tests:
     runs-on: windows-2022
     timeout-minutes: 30
+    outputs:
+      tests_outcome: ${{ steps.tests.outcome }}
+      test_evidence: ${{ steps.evidence.outputs.result }}
     defaults:
       run:
         shell: pwsh
@@ -129,3 +132,70 @@ jobs:
           path: build/allure-report
           if-no-files-found: error
           retention-days: 7
+
+      - name: Inspect JUnit evidence for notification
+        id: evidence
+        if: ${{ !cancelled() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        run: |
+          $evidence = 'invalid'
+          try {
+            . .\scripts\ci-telegram.ps1
+            $evidence = Get-UiTestEvidence -ResultsDirectory 'build/test-results/test'
+          }
+          catch {
+            Write-Warning 'JUnit evidence could not be inspected; the test result is unverified.'
+          }
+          "result=$evidence" >> $env:GITHUB_OUTPUT
+
+  telegram:
+    needs: ui-tests
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && (needs.ui-tests.result == 'success' || needs.ui-tests.result == 'failure') }}
+    runs-on: windows-2022
+    timeout-minutes: 5
+    # Only notification infrastructure is best-effort; never the UI tests.
+    continue-on-error: true
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check notification configuration
+        id: configuration
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          $enabled = -not ([string]::IsNullOrWhiteSpace($env:TELEGRAM_BOT_TOKEN) -or [string]::IsNullOrWhiteSpace($env:TELEGRAM_CHAT_ID))
+          "enabled=$($enabled.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          if (-not $enabled) {
+            Write-Warning 'Telegram notification skipped: required Actions secrets are not configured.'
+            'Telegram notification: skipped (missing configuration).' >> $env:GITHUB_STEP_SUMMARY
+          }
+
+      - name: Checkout notification script
+        if: ${{ steps.configuration.outputs.enabled == 'true' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Send Telegram notification
+        if: ${{ steps.configuration.outputs.enabled == 'true' }}
+        timeout-minutes: 1
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          UI_JOB_RESULT: ${{ needs.ui-tests.result }}
+          UI_TEST_OUTCOME: ${{ needs.ui-tests.outputs.tests_outcome }}
+          UI_TEST_EVIDENCE: ${{ needs.ui-tests.outputs.test_evidence }}
+        run: |
+          $delivery = 'failed'
+          try {
+            . .\scripts\ci-telegram.ps1
+            $runUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            $delivery = Send-CiTelegramNotification -BotToken $env:TELEGRAM_BOT_TOKEN -ChatId $env:TELEGRAM_CHAT_ID `
+              -Project $env:GITHUB_REPOSITORY -Branch $env:GITHUB_REF_NAME -JobResult $env:UI_JOB_RESULT `
+              -TestOutcome $env:UI_TEST_OUTCOME -TestEvidence $env:UI_TEST_EVIDENCE -RunUrl $runUrl
+          }
+          catch {
+            Write-Warning 'Telegram notification could not run; the UI job result is unchanged.'
+          }
+          "Telegram notification: $delivery. UI job: $env:UI_JOB_RESULT." >> $env:GITHUB_STEP_SUMMARY
