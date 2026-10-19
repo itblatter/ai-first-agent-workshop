@@ -1,0 +1,14 @@
+.gradle/
+build/
+.tools/
+.env
+.env.*
+!.env.example
+config.local.json
+.ssh/
+id_rsa
+id_ed25519
+*.key
+*.pem
+*.p12
+*.pfx

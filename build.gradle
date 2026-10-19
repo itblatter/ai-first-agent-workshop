@@ -1,0 +1,32 @@
+plugins {
+    id 'java-library'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    testImplementation platform("io.qameta.allure:allure-bom:3.0.0")
+    testImplementation(
+            "com.codeborne:selenide:7.18.2",
+            "org.junit.jupiter:junit-jupiter:6.1.3",
+            "io.qameta.allure:allure-jupiter",
+            "io.qameta.allure:allure-selenide")
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+test {
+    useJUnitPlatform()
+
+    ["selenide.baseUrl", "selenide.browser", "selenide.browserSize", "selenide.headless"].each { propertyName ->
+        def value = System.getProperty(propertyName)
+        if (value != null) {
+            systemProperty propertyName, value
+        }
+    }
+}

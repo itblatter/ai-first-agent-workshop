@@ -1,0 +1,131 @@
+name: UI Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      browserSize:
+        description: Browser window size (WIDTHxHEIGHT)
+        type: string
+        default: 1920x1080
+        required: true
+      browser:
+        description: Browser
+        type: choice
+        options:
+          - chrome
+        default: chrome
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  ui-tests:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      SE_SKIP_DRIVER_IN_PATH: 'true'
+      SE_AVOID_BROWSER_DOWNLOAD: 'true'
+      SE_AVOID_STATS: 'true'
+
+    steps:
+      - name: Validate inputs
+        env:
+          BROWSER_SIZE: ${{ inputs.browserSize }}
+          BROWSER: ${{ inputs.browser }}
+        run: |
+          # Absolute anchors also reject a trailing newline in .NET regexes.
+          if ($env:BROWSER_SIZE -cnotmatch '\A[0-9]{3,4}x[0-9]{3,4}\z') {
+            throw 'browserSize must match WIDTHxHEIGHT with 3-4 digits per dimension.'
+          }
+          if ($env:BROWSER -cne 'chrome') {
+            throw 'Only Chrome is supported in CI.'
+          }
+
+      - name: Checkout sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 21 and dependency cache
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-jdk: false
+          cache-path: ~/.gradle/caches/modules-2
+          cache-dependency-path: |
+            build.gradle
+            gradle/wrapper/gradle-wrapper.properties
+          cache-read-only: ${{ github.ref_name != github.event.repository.default_branch }}
+
+      - name: Install Allure CLI
+        timeout-minutes: 5
+        run: .\scripts\setup-allure.ps1
+
+      - name: Run UI tests
+        id: tests
+        timeout-minutes: 10
+        env:
+          BROWSER_SIZE: ${{ inputs.browserSize }}
+          BROWSER: ${{ inputs.browser }}
+        run: |
+          .\gradlew.bat test --no-daemon --console=plain `
+            "-Dselenide.baseUrl=https://github.com" `
+            "-Dselenide.browser=$env:BROWSER" `
+            "-Dselenide.browserSize=$env:BROWSER_SIZE" `
+            "-Dselenide.headless=true"
+
+      # Save raw evidence before generation, independently of the test outcome.
+      - name: Upload Allure results and attachments
+        if: ${{ !cancelled() && hashFiles('build/allure-results/**') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        timeout-minutes: 3
+        with:
+          name: allure-results
+          path: build/allure-results
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload JUnit XML and Gradle HTML
+        if: ${{ !cancelled() && (hashFiles('build/test-results/test/**') != '' || hashFiles('build/reports/tests/test/**') != '') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        timeout-minutes: 3
+        with:
+          name: gradle-test-reports
+          path: |
+            build/test-results/test
+            build/reports/tests/test
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Generate Allure report
+        id: report
+        if: ${{ !cancelled() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        timeout-minutes: 5
+        run: |
+          $results = @(Get-ChildItem -Path 'build/allure-results' -Filter '*-result.json' -File -ErrorAction SilentlyContinue)
+          if ($results.Count -eq 0) {
+            throw 'No Allure test results were produced; report was not generated.'
+          }
+          & .\.tools\allure-2.46.1\bin\allure.bat generate build/allure-results --clean -o build/allure-report
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+          if (-not (Test-Path -LiteralPath 'build/allure-report/index.html' -PathType Leaf)) {
+            throw 'Allure generation did not produce index.html.'
+          }
+
+      - name: Upload generated Allure report
+        if: ${{ !cancelled() && steps.report.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        timeout-minutes: 3
+        with:
+          name: allure-report
+          path: build/allure-report
+          if-no-files-found: error
+          retention-days: 7
