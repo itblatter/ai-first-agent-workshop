@@ -12,3 +12,4 @@ id_ed25519
 *.pem
 *.p12
 *.pfx
+.ci-secrets.env
