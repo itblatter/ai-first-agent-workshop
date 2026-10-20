@@ -128,8 +128,111 @@ function New-CiTelegramMessage {
     return "Project: $projectLine`nBranch: $branchLine`nCI status: $status`nReason: $reason`nRun: $urlLine"
 }
 
+function Invoke-TelegramPinnedRequest {
+    param([string]$BotToken, [string]$Json, [string]$EndpointIp)
+
+    $tcp = $null
+    $ssl = $null
+    try {
+        $tcp = [System.Net.Sockets.TcpClient]::new()
+        $connect = $tcp.ConnectAsync($EndpointIp, 443)
+        if (-not $connect.Wait([TimeSpan]::FromSeconds(8))) {
+            throw 'Pinned Telegram endpoint connect timed out.'
+        }
+        $null = $connect.GetAwaiter().GetResult()
+        $ssl = [System.Net.Security.SslStream]::new($tcp.GetStream(), $false)
+        $ssl.WriteTimeout = 10000
+        $auth = $ssl.AuthenticateAsClientAsync('api.telegram.org')
+        if (-not $auth.Wait([TimeSpan]::FromSeconds(12))) {
+            throw 'Pinned Telegram endpoint TLS handshake timed out.'
+        }
+        $null = $auth.GetAwaiter().GetResult()
+
+        $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($Json)
+        $requestHead = "POST /bot$BotToken/sendMessage HTTP/1.1`r`n" +
+            "Host: api.telegram.org`r`n" +
+            "Content-Type: application/json`r`n" +
+            "Content-Length: $($bodyBytes.Length)`r`n" +
+            "Connection: close`r`n`r`n"
+        $headBytes = [System.Text.Encoding]::ASCII.GetBytes($requestHead)
+        $ssl.Write($headBytes, 0, $headBytes.Length)
+        $ssl.Write($bodyBytes, 0, $bodyBytes.Length)
+        $ssl.Flush()
+
+        $buffer = [System.IO.MemoryStream]::new()
+        $chunk = New-Object byte[] 16384
+        $deadline = [DateTime]::UtcNow.AddSeconds(15)
+        while ($true) {
+            $readTask = $ssl.ReadAsync($chunk, 0, $chunk.Length)
+            $remaining = [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds
+            if ($remaining -le 0 -or -not $readTask.Wait($remaining)) {
+                throw 'Pinned Telegram endpoint response timed out.'
+            }
+            $count = $readTask.Result
+            if ($count -le 0) { break }
+            $buffer.Write($chunk, 0, $count)
+        }
+
+        $rawBytes = $buffer.ToArray()
+        $headerEnd = -1
+        for ($i = 0; $i -le $rawBytes.Length - 4; $i++) {
+            if ($rawBytes[$i] -eq 13 -and $rawBytes[$i + 1] -eq 10 `
+                    -and $rawBytes[$i + 2] -eq 13 -and $rawBytes[$i + 3] -eq 10) {
+                $headerEnd = $i
+                break
+            }
+        }
+        if ($headerEnd -lt 0) { throw 'Pinned endpoint returned a malformed HTTP response.' }
+        $head = [System.Text.Encoding]::ASCII.GetString($rawBytes, 0, $headerEnd)
+        if ($head -notmatch '\AHTTP/\d+(?:\.\d+)?\s+(\d{3})') {
+            throw 'Pinned endpoint returned a malformed HTTP status line.'
+        }
+        $statusCode = [int]$Matches[1]
+
+        $bodyStart = $headerEnd + 4
+        if ($head -match '(?im)^Transfer-Encoding:\s*chunked') {
+            $decoded = [System.IO.MemoryStream]::new()
+            $pos = $bodyStart
+            while ($true) {
+                $eol = -1
+                for ($i = $pos; $i -le $rawBytes.Length - 2; $i++) {
+                    if ($rawBytes[$i] -eq 13 -and $rawBytes[$i + 1] -eq 10) { $eol = $i; break }
+                }
+                if ($eol -lt 0) { throw 'Pinned endpoint returned a truncated chunk header.' }
+                $sizeText = [System.Text.Encoding]::ASCII.GetString($rawBytes, $pos, $eol - $pos).Trim()
+                $size = 0
+                if (-not [int]::TryParse($sizeText, [System.Globalization.NumberStyles]::HexNumber, $null, [ref]$size)) {
+                    throw 'Pinned endpoint returned a malformed chunk header.'
+                }
+                $pos = $eol + 2
+                if ($size -eq 0) { break }
+                if ($pos + $size -gt $rawBytes.Length) { throw 'Pinned endpoint returned a truncated chunk.' }
+                $decoded.Write($rawBytes, $pos, $size)
+                $pos += $size + 2
+            }
+            $content = [System.Text.Encoding]::UTF8.GetString($decoded.ToArray())
+        }
+        else {
+            $content = [System.Text.Encoding]::UTF8.GetString($rawBytes, $bodyStart, $rawBytes.Length - $bodyStart)
+        }
+        return [pscustomobject]@{ StatusCode = $statusCode; Content = $content }
+    }
+    finally {
+        if ($null -ne $ssl) { $ssl.Dispose() }
+        if ($null -ne $tcp) { $tcp.Dispose() }
+    }
+}
+
 function Invoke-TelegramRequest {
     param([string]$BotToken, [string]$Json)
+
+    $pinnedIp = [string]$env:CI_TELEGRAM_ENDPOINT_IP
+    if (-not [string]::IsNullOrWhiteSpace($pinnedIp)) {
+        if ($pinnedIp.Trim() -notmatch '\A\d{1,3}(?:\.\d{1,3}){3}\z') {
+            throw 'CI_TELEGRAM_ENDPOINT_IP is not a valid IPv4 address.'
+        }
+        return Invoke-TelegramPinnedRequest -BotToken $BotToken -Json $Json -EndpointIp $pinnedIp.Trim()
+    }
 
     Add-Type -AssemblyName System.Net.Http -ErrorAction Stop
     $handler = $null
@@ -197,8 +300,9 @@ function Send-CiTelegramNotification {
         return 'sent'
     }
     catch {
-        # Exceptions can include the token-bearing URL or the API response.
-        Write-Warning 'Telegram delivery is unconfirmed; no retry was attempted. The UI job result is unchanged.'
+        # Exception messages may include the token-bearing URL or the API
+        # response body; report only the type name for diagnosis.
+        Write-Warning "Telegram delivery is unconfirmed ($($_.Exception.GetType().Name)); no retry was attempted. The UI job result is unchanged."
         return 'failed'
     }
 }

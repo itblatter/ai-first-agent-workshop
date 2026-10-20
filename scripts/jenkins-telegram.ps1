@@ -7,6 +7,27 @@ Set-StrictMode -Version Latest
 try {
     . (Join-Path $PSScriptRoot 'ci-telegram.ps1')
 
+    # The agent egress drops the DNS-assigned Telegram endpoint; probe the
+    # known api.telegram.org edge IPs and pin the first reachable one for the
+    # sender's single delivery attempt.
+    foreach ($candidate in @('149.154.167.220', '149.154.167.99', '149.154.166.110', '95.161.64.100', '91.108.56.130')) {
+        $probe = $null
+        try {
+            $probe = [System.Net.Sockets.TcpClient]::new()
+            if ($probe.ConnectAsync($candidate, 443).Wait(2000) -and $probe.Connected) {
+                $env:CI_TELEGRAM_ENDPOINT_IP = $candidate
+                break
+            }
+        }
+        catch { }
+        finally {
+            if ($null -ne $probe) { $probe.Dispose() }
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($env:CI_TELEGRAM_ENDPOINT_IP)) {
+        Write-Warning 'No pinned Telegram endpoint is reachable; the default resolver path will be used.'
+    }
+
     $evidence = 'invalid'
     try {
         $evidence = Get-UiTestEvidence -ResultsDirectory 'build/test-results/test'
