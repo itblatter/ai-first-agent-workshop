@@ -23,7 +23,8 @@ tasks.withType(JavaCompile) {
 test {
     useJUnitPlatform()
 
-    ["selenide.baseUrl", "selenide.browser", "selenide.browserSize", "selenide.headless"].each { propertyName ->
+    ["selenide.baseUrl", "selenide.browser", "selenide.browserSize", "selenide.headless",
+     "selenide.remote", "selenide.browserVersion"].each { propertyName ->
         def value = System.getProperty(propertyName)
         if (value != null) {
             systemProperty propertyName, value
