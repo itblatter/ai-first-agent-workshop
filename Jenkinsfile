@@ -37,20 +37,26 @@ pipeline {
                         writeFile file: secretsFile,
                                   text: secretNames.collect { "${it}=${params[it]}" }.join('\n') + '\n'
                         sh(label: 'Restrict secrets file permissions', script: "chmod 600 ${secretsFile}")
-                        secretNames.each { env[it] = params[it].toString() }
                     } else if (fileExists(secretsFile)) {
                         def resolved = [:]
                         readFile(secretsFile).eachLine { line ->
                             def idx = line.indexOf('=')
-                            if (idx > 0) { resolved[line.substring(0, idx)] = line.substring(idx + 1) }
+                            if (idx > 0) { resolved.put(line.substring(0, idx), line.substring(idx + 1)) }
                         }
-                        secretNames.each {
-                            if (resolved[it] != null && !resolved[it].trim().isEmpty()) { env[it] = resolved[it] }
-                        }
+                        env.SELENOID_USER = resolved['SELENOID_USER'] ?: ''
+                        env.SELENOID_PASSWORD = resolved['SELENOID_PASSWORD'] ?: ''
+                        env.TELEGRAM_BOT_TOKEN = resolved['TELEGRAM_BOT_TOKEN'] ?: ''
+                        env.TELEGRAM_CHAT_ID = resolved['TELEGRAM_CHAT_ID'] ?: ''
                     }
-                    def missing = secretNames.findAll {
-                        env[it] == null || env[it].toString().trim().isEmpty()
-                    }
+                    def effective = [
+                        SELENOID_USER      : env.SELENOID_USER ?: params.SELENOID_USER,
+                        SELENOID_PASSWORD  : env.SELENOID_PASSWORD ?: params.SELENOID_PASSWORD,
+                        TELEGRAM_BOT_TOKEN : env.TELEGRAM_BOT_TOKEN ?: params.TELEGRAM_BOT_TOKEN,
+                        TELEGRAM_CHAT_ID   : env.TELEGRAM_CHAT_ID ?: params.TELEGRAM_CHAT_ID
+                    ]
+                    def missing = effective.findAll {
+                        it.value == null || it.value.toString().trim().isEmpty()
+                    }.collect { it.key }
                     if (!missing.isEmpty()) {
                         error("Required secrets are missing as parameters and in ${secretsFile}: ${missing.join(', ')}")
                     }
