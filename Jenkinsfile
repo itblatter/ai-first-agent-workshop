@@ -39,9 +39,9 @@ pipeline {
                         sh(label: 'Restrict secrets file permissions', script: "chmod 600 ${secretsFile}")
                     } else if (fileExists(secretsFile)) {
                         def resolved = [:]
-                        readFile(secretsFile).eachLine { line ->
+                        readFile(secretsFile).split('\n').each { line ->
                             def idx = line.indexOf('=')
-                            if (idx > 0) { resolved.put(line.substring(0, idx), line.substring(idx + 1)) }
+                            if (idx > 0) { resolved.put(line.substring(0, idx).trim(), line.substring(idx + 1).trim()) }
                         }
                         env.SELENOID_USER = resolved['SELENOID_USER'] ?: ''
                         env.SELENOID_PASSWORD = resolved['SELENOID_PASSWORD'] ?: ''
