@@ -45,7 +45,8 @@ pipeline {
                     if (!(params.UI_BROWSER_SIZE ==~ /\d{3,4}x\d{3,4}/)) {
                         error('UI_BROWSER_SIZE must match WIDTHxHEIGHT with 3-4 digits per dimension.')
                     }
-                    if (!params.SELENOID_USER || !params.SELENOID_PASSWORD) {
+                    if (params.SELENOID_USER == null || params.SELENOID_USER.toString().trim().isEmpty()
+                        || params.SELENOID_PASSWORD == null || params.SELENOID_PASSWORD.toString().trim().isEmpty()) {
                         error('SELENOID_USER and SELENOID_PASSWORD parameters are required for the remote browser session.')
                     }
                 }
@@ -64,18 +65,24 @@ pipeline {
                 script {
                     env.UI_TEST_OUTCOME = 'skipped'
                     try {
-                        // Secrets travel only through the process environment, never command lines.
-                        sh(label: 'Gradle UI tests against selenoid.qa.guru', script: '''
-                            set +x
-                            set -eu
-                            export UI_REMOTE="https://${SELENOID_USER}:${SELENOID_PASSWORD}@selenoid.qa.guru/wd/hub"
-                            ./gradlew test --no-daemon --console=plain \
-                                "-Dselenide.baseUrl=${UI_BASE_URL}" \
-                                "-Dselenide.browser=${UI_BROWSER}" \
-                                "-Dselenide.browserVersion=${UI_BROWSER_VERSION}" \
-                                "-Dselenide.browserSize=${UI_BROWSER_SIZE}" \
-                                "-Dselenide.headless=false"
-                        ''')
+                        // Password params are not exported to the shell automatically;
+                        // withEnv injects them so secrets stay off command lines.
+                        withEnv([
+                            "SELENOID_USER=${params.SELENOID_USER}",
+                            "SELENOID_PASSWORD=${params.SELENOID_PASSWORD}"
+                        ]) {
+                            sh(label: 'Gradle UI tests against selenoid.qa.guru', script: '''
+                                set +x
+                                set -eu
+                                export UI_REMOTE="https://${SELENOID_USER}:${SELENOID_PASSWORD}@selenoid.qa.guru/wd/hub"
+                                ./gradlew test --no-daemon --console=plain \
+                                    "-Dselenide.baseUrl=${UI_BASE_URL}" \
+                                    "-Dselenide.browser=${UI_BROWSER}" \
+                                    "-Dselenide.browserVersion=${UI_BROWSER_VERSION}" \
+                                    "-Dselenide.browserSize=${UI_BROWSER_SIZE}" \
+                                    "-Dselenide.headless=false"
+                            ''')
+                        }
                         env.UI_TEST_OUTCOME = 'success'
                     } catch (Throwable testError) {
                         env.UI_TEST_OUTCOME = 'failure'
@@ -136,11 +143,14 @@ pipeline {
                 }
                 if (!params.SEND_TELEGRAM) {
                     echo 'Telegram notification skipped: SEND_TELEGRAM parameter is off.'
-                } else if (!params.TELEGRAM_BOT_TOKEN || !params.TELEGRAM_CHAT_ID) {
+                } else if (params.TELEGRAM_BOT_TOKEN == null || params.TELEGRAM_BOT_TOKEN.toString().trim().isEmpty()
+                           || params.TELEGRAM_CHAT_ID == null || params.TELEGRAM_CHAT_ID.toString().trim().isEmpty()) {
                     echo 'Telegram notification skipped: TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID parameters are empty.'
                 } else {
                     try {
                         withEnv([
+                            "TELEGRAM_BOT_TOKEN=${params.TELEGRAM_BOT_TOKEN}",
+                            "TELEGRAM_CHAT_ID=${params.TELEGRAM_CHAT_ID}",
                             "UI_JOB_RESULT=${jobResult}",
                             "UI_TEST_OUTCOME=${env.UI_TEST_OUTCOME ?: 'skipped'}",
                             "UI_RUN_URL=${env.BUILD_URL}",
