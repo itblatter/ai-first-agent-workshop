@@ -80,7 +80,9 @@ scripts/                setup-allure.ps1, setup-agent-tools.sh,
                         ci-telegram.ps1, jenkins-telegram.ps1, test-ci-telegram.ps1
 .github/workflows/ci.yml  GitHub Actions
 Jenkinsfile               Jenkins pipeline
-docs/ui-test-project.md   план фаз, решения и проверки
+docs/plans/ui-test-project.md  план фаз, решения и проверки
+docs/retrospective.md          ретроспектива
+AGENTS.md                      правила работы агента
 ```
 
 Проверка скрипта уведомлений без сети: `.\scripts\test-ci-telegram.ps1` (248 assertions, PowerShell 5.1+).

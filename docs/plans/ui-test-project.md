@@ -670,6 +670,67 @@ HEAD 200 не доказывает успешный Git checkout, загрузк
 - [x] Отдельно перечислить фактически выполненные проверки и проверки, требующие внешнего запуска — внешние приёмки: GitHub Actions runs 39290188719/39290946678/39297382908, Jenkins builds 18 (SUCCESS) и 19 (FAILURE) с доставленными Telegram-уведомлениями.
 - [x] Зафиксировать оставшиеся ограничения — нестабильный egress до `api.telegram.org` с Jenkins-агента (смягчён пином живых IP), password-параметры вместо недоступных Credentials-стор, недоставка Telegram не может менять исход тестов.
 
+## Mini-review 2026-10-20
+
+Проверяемый объект: `itblatter/ai-first-agent-workshop`, `main` HEAD `da6aeba9881423f0803f9afdd0fa8a7b36ab3379` (13 коммитов). `da6aeba` отличается от проверенного в Jenkins `7daf902` только `README.md` и этим документом — код и конфигурации идентичны. Локальный клон `D:\Users\Mishon\Documents\repo\ai-first-agent-workshop` — `main@da6aeba`, дерево чистое, `origin` — репозиторий проекта. Проверка выполнялась в отдельном `review-checkout` (свежий `git clone`) и изолированном `GRADLE_USER_HOME`; рабочий клон и исходный `getting-started-java` не изменялись.
+
+### Проверено локально (реальные прогоны из чистого checkout)
+
+| Проверка | Команда | Ожидаемое / фактическое |
+|---|---|---|
+| Wrapper | `.\gradlew.bat --version` | Скачивание Gradle 9.2.0 с нуля / скачан и запущен на Temurin 21.0.12.1 |
+| Тесты | `.\gradlew.bat test --no-daemon --console=plain "-Dselenide.headless=true"` | 3 теста к github.com / `BUILD SUCCESSFUL in 45s`, exit 0, JUnit `tests=3 failures=0 errors=0 skipped=0` |
+| Установщик | `.\scripts\setup-allure.ps1` | CLI 2.46.1 по закреплённому SHA-256 / `Allure Report 2.46.1 is ready`, exit 0 |
+| Генерация | `allure.bat generate build\allure-results --clean -o build\allure-report` | Отчёт с 3 тестами / `index.html` создан, summary `passed=3 total=3` |
+| Изоляция Git | `git status --short` после прогонов | Дерево чистое / чистое (`build/`, `.tools/` игнорируются) |
+| Уведомитель без сети | `.\scripts\test-ci-telegram.ps1` | 248 assertions / все прошли, transport mocked |
+
+### Проверено в реальном CI (независимо, через API)
+
+| Проверка | Запуск | Фактический результат (API) |
+|---|---|---|
+| Успешный прогон | [run 39290188719](https://github.com/itblatter/ai-first-agent-workshop/actions/runs/39290188719), `5f1890f` | conclusion success; 3 артефакта существуют до 2026-10-26 |
+| Падение теста | [run 39290946678](https://github.com/itblatter/ai-first-agent-workshop/actions/runs/39290946678), `12040c7` (временная ветка, удалена) | job `ui-tests` = failure; шаг Run UI tests = failure; все upload/generate = success; 3 артефакта существуют (`allure-results` 141903 Б — с вложениями) |
+| Telegram job | [run 39297382908](https://github.com/itblatter/ai-first-agent-workshop/actions/runs/39297382908), `5ea780d` | `ui-tests` success, `telegram` success, все шаги success; старт после завершения ui-tests |
+| Jenkins успех | [build 18](https://jenkins.qa.guru/job/ai-first-itblatter-hw1/18/), `7daf902` | API+консоль: `Finished: SUCCESS`; checkout ревизии `7daf902`; `:test` UP-TO-DATE (переиспользован кеш workspace — см. F7); JUnit 3 pass / 0 fail (`tests.SearchTests`); отчёты CLI 2.46.1 и плагина сгенерированы и заархивированы; `Telegram notification: sent` |
+| Jenkins падение | [build 19](https://jenkins.qa.guru/job/ai-first-itblatter-hw1/19/), `7daf902` | API+консоль: `BUILD FAILED`, `Finished: FAILURE`; 3 реальных падения `SearchTests` (`ElementNotFound`→`NoSuchElementException`, строки 12/19/28 — контролируемый `example.com`); JUnit 0/3; оба Allure-отчёта и архивация сохранены; Telegram sent — исходная ошибка не скрыта |
+| Actions ошибка сборки | [run 39422030565](https://github.com/itblatter/ai-first-agent-workshop/actions/runs/39422030565), `7788eed` (временная ветка `ci/review-build-failure`, удалена) | Ошибка компиляции `SearchTests` → `compileTestJava` FAILED, `Run UI tests` failure, job failure; оба upload skipped; `Generate Allure report` упал с «No Allure test results were produced; report was not generated»; артефактов нет — ложного отчёта нет; telegram job выполнен (JOB_RESULT=failure, OUTCOME=failure, EVIDENCE=missing) |
+| Actions нет результатов | [run 39422033721](https://github.com/itblatter/ai-first-agent-workshop/actions/runs/39422033721), `3766ea8` (временная ветка `ci/review-no-results`, удалена) | `Run UI tests` — **success** (`:test SKIPPED`, `BUILD SUCCESSFUL`, 0 результатов), но job failure: guard отчёта упал с «No Allure test results were produced»; оба upload skipped; артефактов нет — ложного «тесты прошли» нет; telegram выполнен (JOB_RESULT=failure, OUTCOME=success, EVIDENCE=missing) |
+
+### Findings
+
+- **F1 (мелкий, остаточный пробел покрытия):** три из четырёх обязательных CI-ситуаций проверены реальным движком (падение теста — Actions 39290946678 и Jenkins 19; ошибка сборки — Actions 39422030565; нет результатов — Actions 39422033721). «Ошибка уведомления» подтверждена только кодом и локальными моделями — реального сбоя доставки не было.
+- **F2 (мелкий, README):** `scripts/setup-allure.ps1` требует `JAVA_HOME`, в README «Требования» указан только JDK 17+. На машине без `JAVA_HOME` инструкции из README остановятся на установщике.
+- **F3 (мелкий, README):** повторный локальный `gradlew test` накапливает результаты в `build/allure-results` — для чистого отчёта нужен `clean`; в README нет такой пометки (есть в разделе фазы 4).
+- **F4 (мелкий, README):** команды локального запуска даны только для Windows (`gradlew.bat`); для Linux/macOS `./gradlew` не показан.
+- **F5 (принятый риск, не дефект):** `.ci-secrets.env` в persistent workspace Jenkins-агента (chmod 600, gitignored, не архивируется) и password-параметры вместо недоступных Credentials-стор — задокументированный компромисс.
+- **F6 (принятый риск):** запиненный IP-пул Telegram (`jenkins-telegram.ps1`/`ci-telegram.ps1`) требует поддержки при смене адресов Telegram; TLS-валидация сохранена.
+- **F7 (мелкий, Jenkins):** в build 18 задача `:test` была `UP-TO-DATE` — JUnit и Allure опубликовали результаты кешированного выполнения из того же persistent workspace, а не свежего прогона (Gradle-входы, включая `selenide.*`-свойства, не изменились; в build 19 смена `UI_BASE_URL` корректно перевыполнила тесты). Зелёный build 18 подтверждает механику пайплайна, но «3 теста прошли» — унаследованный результат предыдущего выполнения. Гарантия свежести — `cleanTest`/`test` или `outputs.upToDateWhen { false }`.
+
+### Секреты и generated-артефакты
+
+- [x] Поиск по всем tracked-файлам и всей истории (13 коммитов): типовые токены (`ghp_`, `github_pat_`, `gho_`, `ghs_`, `ghr_`, `xox*`, `AKIA`), приватные ключи, URL с паролем, ключевые слова password/token/secret — совпадений нет.
+- [x] `.gitignore` покрывает `build/`, `.gradle/`, `.tools/`, `.env*`, `.ci-secrets.env`, `config.local.json`, ключи/контейнеры; `.ci-secrets.env` и диагностические файлы не tracked.
+- [x] README содержит только имена секретов (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `SELENOID_USER/PASSWORD`), без значений; пример `UI_REMOTE` — placeholder.
+- [x] `gradlew` — 100755 (нужен Linux-агенту Jenkins); tracked-файлов вне кода/конфигурации/документации нет.
+
+### Осталось непроверенным
+
+- ~~Jenkins builds 18 (SUCCESS) и 19 (FAILURE)~~ — **проверены через Jenkins API 2026-10-20** (авторизованный доступ `itblatter`): обе сборки на коммите `7daf902`; build 18 — `Finished: SUCCESS`, JUnit 3/0, оба отчёта и архивация, Telegram sent; build 19 — `Finished: FAILURE`, 3 реальных падения `SearchTests`, диагностика сохранена, Telegram sent. Оговорка по UP-TO-DATE — см. F7.
+- «Красный UI job + сбой Telegram» одновременно — не наблюдалось ни в одном движке; подтверждено только дизайном кода (`continue-on-error` у telegram job, try/catch + exit 0 в Jenkins). Минимальный следующий шаг: dispatch с временно невалидным `TELEGRAM_BOT_TOKEN` (требует смены secret и разрешения).
+- Доступность Settings-уровня репозитория (default workflow permissions, allowed actions) — API требует авторизации.
+
+### Итог критериев финала
+
+| Критерий | Итог |
+|---|---|
+| Падение теста: ошибка сохранена, CI не зелёный, диагностика доступна | Выполнен (Actions run 39290946678 и Jenkins build 19 — оба по API) |
+| Ошибка сборки: CI неуспешен, тесты не объявлены пройденными | Выполнен (Actions run 39422030565 по API: compile FAILED → job failure, артефактов нет) |
+| Отсутствие результатов: нет ложного успешного отчёта | Выполнен (Actions run 39422033721 по API: зелёный test-шаг с 0 результатов → job failure, отчёт отклонён) |
+| Ошибка уведомления: политика соблюдена, исходная ошибка не скрыта | Частично: политика подтверждена кодом (`continue-on-error` только у telegram job, try/catch + exit 0 в Jenkins), реального сбоя не было |
+
+Воспроизводимость из чистого checkout: **выполнена** — вся цепочка поднялась с нуля по README + docs; недостающих необходимых файлов нет; JAVA_HOME — единственная незадокументированная в README зависимость (F2).
+
 ## Справочные записи прежней версии
 
 Ниже сохранён прежний текст без исправления его содержимого. Он содержит сведения, не подтверждённые для текущего клона: Wrapper 9.6.0, другую структуру страниц, Allure Report 2, внешние коммиты, запуски Actions и итоговое review. Не переносить эти отметки в актуальный план без отдельной проверки и согласования. Актуальные статусы находятся выше.
