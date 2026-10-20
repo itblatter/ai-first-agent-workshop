@@ -128,13 +128,11 @@ function New-CiTelegramMessage {
     return "Project: $projectLine`nBranch: $branchLine`nCI status: $status`nReason: $reason`nRun: $urlLine"
 }
 
-function Invoke-TelegramPinnedRequest {
-    param([string]$BotToken, [string]$Json, [string]$EndpointIp)
+function New-TelegramPinnedChannel {
+    param([string]$EndpointIp)
 
-    $tcp = $null
-    $ssl = $null
+    $tcp = [System.Net.Sockets.TcpClient]::new()
     try {
-        $tcp = [System.Net.Sockets.TcpClient]::new()
         $connect = $tcp.ConnectAsync($EndpointIp, 443)
         if (-not $connect.Wait([TimeSpan]::FromSeconds(8))) {
             throw 'Pinned Telegram endpoint connect timed out.'
@@ -147,7 +145,33 @@ function Invoke-TelegramPinnedRequest {
             throw 'Pinned Telegram endpoint TLS handshake timed out.'
         }
         $null = $auth.GetAwaiter().GetResult()
+        return [pscustomobject]@{ Tcp = $tcp; Ssl = $ssl }
+    }
+    catch {
+        $tcp.Dispose()
+        throw
+    }
+}
 
+function Invoke-TelegramPinnedRequest {
+    param([string]$BotToken, [string]$Json, [string[]]$EndpointIps)
+
+    $channel = $null
+    foreach ($ip in $EndpointIps) {
+        try {
+            $channel = New-TelegramPinnedChannel -EndpointIp $ip
+            break
+        }
+        catch {
+            # Connection setup failed before any request bytes were sent;
+            # moving to the next candidate is not a retry of the delivery.
+            $channel = $null
+        }
+    }
+    if ($null -eq $channel) { throw 'No pinned Telegram endpoint could establish a TLS channel.' }
+
+    try {
+        $ssl = $channel.Ssl
         $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($Json)
         $requestHead = "POST /bot$BotToken/sendMessage HTTP/1.1`r`n" +
             "Host: api.telegram.org`r`n" +
@@ -218,8 +242,8 @@ function Invoke-TelegramPinnedRequest {
         return [pscustomobject]@{ StatusCode = $statusCode; Content = $content }
     }
     finally {
-        if ($null -ne $ssl) { $ssl.Dispose() }
-        if ($null -ne $tcp) { $tcp.Dispose() }
+        $channel.Ssl.Dispose()
+        $channel.Tcp.Dispose()
     }
 }
 
@@ -228,10 +252,9 @@ function Invoke-TelegramRequest {
 
     $pinnedIp = [string]$env:CI_TELEGRAM_ENDPOINT_IP
     if (-not [string]::IsNullOrWhiteSpace($pinnedIp)) {
-        if ($pinnedIp.Trim() -notmatch '\A\d{1,3}(?:\.\d{1,3}){3}\z') {
-            throw 'CI_TELEGRAM_ENDPOINT_IP is not a valid IPv4 address.'
-        }
-        return Invoke-TelegramPinnedRequest -BotToken $BotToken -Json $Json -EndpointIp $pinnedIp.Trim()
+        $ips = @($pinnedIp -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '\A\d{1,3}(?:\.\d{1,3}){3}\z' })
+        if ($ips.Count -eq 0) { throw 'CI_TELEGRAM_ENDPOINT_IP has no valid IPv4 address.' }
+        return Invoke-TelegramPinnedRequest -BotToken $BotToken -Json $Json -EndpointIps $ips
     }
 
     Add-Type -AssemblyName System.Net.Http -ErrorAction Stop

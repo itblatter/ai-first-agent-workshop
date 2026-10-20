@@ -9,22 +9,30 @@ try {
 
     # The agent egress drops the DNS-assigned Telegram endpoint; probe the
     # known api.telegram.org edge IPs and pin the first reachable one for the
-    # sender's single delivery attempt.
-    foreach ($candidate in @('149.154.167.220', '149.154.167.99', '149.154.166.110', '95.161.64.100', '91.108.56.130')) {
-        $probe = $null
-        try {
-            $probe = [System.Net.Sockets.TcpClient]::new()
-            if ($probe.ConnectAsync($candidate, 443).Wait(2000) -and $probe.Connected) {
-                $env:CI_TELEGRAM_ENDPOINT_IP = $candidate
-                break
+    # sender's single delivery attempt. Connectivity is flaky, so the probe
+    # makes several rounds; this is not a retry of the delivery itself.
+    $liveEndpoints = [System.Collections.Generic.List[string]]::new()
+    for ($round = 0; $round -lt 3 -and $liveEndpoints.Count -eq 0; $round++) {
+        if ($round -gt 0) { Start-Sleep -Milliseconds 1200 }
+        foreach ($candidate in @('149.154.167.220', '149.154.167.99', '149.154.166.110', '95.161.64.100', '91.108.56.130')) {
+            $probe = $null
+            try {
+                $probe = [System.Net.Sockets.TcpClient]::new()
+                if ($probe.ConnectAsync($candidate, 443).Wait(2000) -and $probe.Connected) {
+                    $liveEndpoints.Add($candidate)
+                }
+            }
+            catch { }
+            finally {
+                if ($null -ne $probe) { $probe.Dispose() }
             }
         }
-        catch { }
-        finally {
-            if ($null -ne $probe) { $probe.Dispose() }
-        }
     }
-    if ([string]::IsNullOrWhiteSpace($env:CI_TELEGRAM_ENDPOINT_IP)) {
+    if ($liveEndpoints.Count -gt 0) {
+        $env:CI_TELEGRAM_ENDPOINT_IP = ($liveEndpoints -join ',')
+        Write-Output "Pinned Telegram endpoints: $($env:CI_TELEGRAM_ENDPOINT_IP)"
+    }
+    else {
         Write-Warning 'No pinned Telegram endpoint is reachable; the default resolver path will be used.'
     }
 
