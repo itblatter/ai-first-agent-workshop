@@ -11,26 +11,9 @@ pipeline {
         ))
     }
 
-    parameters {
-        string(name: 'UI_BASE_URL', defaultValue: 'https://github.com',
-               description: 'Base URL of the application under test')
-        choice(name: 'UI_BROWSER', choices: ['chrome'],
-               description: 'Browser name')
-        choice(name: 'UI_BROWSER_VERSION', choices: ['155.0', '154.0', '148.0'],
-               description: 'Chrome version available on selenoid.qa.guru')
-        string(name: 'UI_BROWSER_SIZE', defaultValue: '1920x1080',
-               description: 'Browser window size, WIDTHxHEIGHT')
-        password(name: 'SELENOID_USER', defaultValue: '',
-                 description: 'Selenoid basic-auth username (selenoid.qa.guru)')
-        password(name: 'SELENOID_PASSWORD', defaultValue: '',
-                 description: 'Selenoid basic-auth password (selenoid.qa.guru)')
-        password(name: 'TELEGRAM_BOT_TOKEN', defaultValue: '',
-                 description: 'Telegram bot token for the result notification')
-        password(name: 'TELEGRAM_CHAT_ID', defaultValue: '',
-                 description: 'Telegram chat id for the result notification')
-        booleanParam(name: 'SEND_TELEGRAM', defaultValue: true,
-                     description: 'Send one Telegram notification after the run')
-    }
+    // Parameters are defined in the job configuration, not here: a Jenkinsfile
+    // parameters block would overwrite them on every run and wipe the saved
+    // password defaults.
 
     environment {
         DOTNET_SYSTEM_GLOBALIZATION_INVARIANT = '1'
