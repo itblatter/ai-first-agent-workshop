@@ -197,6 +197,8 @@ ci/                     ci-telegram.ps1, jenkins-telegram.ps1, test-ci-telegram.
 Jenkinsfile               Jenkins pipeline
 docs/plans/ui-test-project.md  план фаз, решения и проверки
 docs/retrospective.md          ретроспектива
+knowledge/<тема>/<тема>.md     база знаний: справочные материалы (напр. test-taxonomy)
+.devin/rules/                  правила агента с триггерами (см. test-executors.md)
 AGENTS.md                      правила работы агента
 ```
 

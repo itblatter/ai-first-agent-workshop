@@ -1,5 +1,34 @@
 # План развития учебного проекта UI-автотестов
 
+## База знаний: таксономия тестов и выбор исполнителя
+
+Статус: реализация выполнена, проверена локально; commit/push не разрешались.
+
+Вводная от преподавателей: таксономия `frontend-unit-tests` / `ui-tests` /
+`e2e-tests` с правилами выбора исполнителя (ui-tests с mock — драйвер раннера,
+e2e — Selenium-ферма) и эталонный порядок job'ов из run
+[38936910957](https://github.com/autotests-ai/autotests-ai-multistack-app/actions/runs/38936910957)
+репозитория `autotests-ai/autotests-ai-multistack-app`.
+
+Согласованный объём (пользователь выбрал конвенцию `knowledge/<тема>/<тема>.md`
+по образцу [qa-guru/system-stats](https://github.com/qa-guru/system-stats/tree/main/knowledge/system-stats);
+скилл `add-test-stage` и кастомный сабагент отклонены как избыточные):
+
+- [x] `knowledge/test-taxonomy/test-taxonomy.md` — полная база знаний:
+  таксономия трёх уровней, правила выбора исполнителя, эталонный порядок
+  job'ов, маппинг на этот репозиторий (Actions = драйвер раннера,
+  Jenkins = Selenoid remote, точка переключения `UI_REMOTE` в `TestBase`).
+- [x] `AGENTS.md` — строка-указатель на базу знаний (always-on остаётся кратким).
+- [x] `.devin/rules/test-executors.md` — правило с `trigger: glob` на
+  `.github/workflows/**`, `Jenkinsfile`, `ci/**`, `src/test/**`, `build.gradle`,
+  `knowledge/**`; сжатые правила выбора исполнителя.
+- [x] `README.md` — `knowledge/` и `.devin/rules/` добавлены в раздел «Структура».
+- [ ] Commit/push — после отдельного разрешения.
+
+Проверка — см. таблицу ниже в разделе проверок этой фазы при появлении; на
+момент записи выполнены: чтение созданных файлов, `git status`, проверка
+frontmatter правила и ссылок между файлами.
+
 ## Упрощение CI — согласованный вариант 3
 
 Статус: пользователь выбрал **вариант 3** после сравнения вариантов и двух эталонов. Согласование, реализация и доступные локальные проверки завершены; изменения подготовлены к ревью, внешняя приёмка не выполнялась. Пользователь отдельно разрешил `RemoteSigned` только в проверочных процессах PowerShell и подтвердил запрет push без него. Коммит также не разрешался и не выполнялся. Этот раздел заменяет предложения первоначального аудита ниже: ни девять файлов, ни задачи Allure в Gradle не реализуются.
@@ -43,7 +72,19 @@
 | `powershell.exe -ExecutionPolicy RemoteSigned -File ci/test-ci-telegram.ps1` | 0 | 248 assertions; новые Write-Warning видны в логе, возвращаемые значения не изменились |
 | `Parser::ParseFile` для `ci/*.ps1`, `git diff --check` | 0 | Синтаксис и whitespace чистые |
 
-Осталось непроверенным: исполнение движком Actions на реальном Ubuntu-runner (pwsh 7, sysctl, `unzip`, Chrome из образа), Pages-деплой (нужен включённый Pages + ветка по умолчанию), Jenkins на неизменённом Jenkinsfile, реальный Telegram-транспорт. Требует push и запуска — по отдельному разрешению.
+Внешняя приёмка (пользователь запустил `workflow_dispatch` на ветке `ci/compact-layout-check`):
+
+| Факт | Результат |
+|---|---|
+| Run [39838395091](https://github.com/itblatter/ai-first-agent-workshop/actions/runs/39838395091) | `completed` / `success`, ~81 с, event `workflow_dispatch`, sha `8d91a76` |
+| `ui-tests` (ubuntu-24.04) | Все шаги success, включая AppArmor sysctl, установку и проверку Allure 2.46.1, `Compile tests`, `Run UI tests` (реальный headless Chrome из образа + Selenium Manager), `Inspect JUnit evidence` |
+| `Upload Pages artifact` / `deploy-report` | Skipped на не-основной ветке — условие default branch подтверждено фактом |
+| `notify-telegram` | Configuration/checkout/Send — success; секреты настроены, отправка выполнялась; факт доставки проверяется пользователем по чату/summary (логи job'а по API без токена недоступны, 403) |
+| Артефакты прогона | `allure-results`, `gradle-test-reports`, `allure-report` (1.1 MB) загружены, не истекли |
+
+Доставка Telegram подтверждена пользователем фактом сообщения в чате. Пользователь смержил PR #1: `origin/main` = `8ae4849` (merge), содержимое `ci.yml` на `main` совпадает с проверенной версией. Dispatch на `main` после мерджа не выполнялся.
+
+Осталось непроверенным: Pages-деплой (Pages выключен в настройках репозитория, `has_pages: false`; нужно включить Source: GitHub Actions и сделать dispatch на `main`), прогон при падении тестов и Jenkins на неизменённом Jenkinsfile.
 
 Принятый компромисс: файлов меньше, но установка инструментов увеличивает inline-блоки CI и требует двух платформенных реализаций установки Allure. Для локального использования установка описывается в README; прежние внешние вызовы `scripts/setup-*.ps1/sh` потребуют обновления. Ссылки в истории фаз и ретроспективе остаются историческим evidence, а не действующими командами.
 
