@@ -1,6 +1,7 @@
 .gradle/
 build/
 .tools/
+.tool-home/
 .env
 .env.*
 !.env.example

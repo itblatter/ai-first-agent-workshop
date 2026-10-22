@@ -19,32 +19,39 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ALLURE_VERSION: '2.46.1'
+  ALLURE_SHA256: d25c519bbde940dc953cff8901130ce18b73013dc19a8f8b90b8b4b1c5eb252f
+
 jobs:
   ui-tests:
-    runs-on: windows-2022
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
+      compile_outcome: ${{ steps.compile.outcome }}
       tests_outcome: ${{ steps.tests.outcome }}
       test_evidence: ${{ steps.evidence.outputs.result }}
-    defaults:
-      run:
-        shell: pwsh
+      report_generated: ${{ steps.report.outcome == 'success' }}
     env:
+      UI_BROWSER: ${{ inputs.browser }}
+      UI_BROWSER_SIZE: ${{ inputs.browserSize }}
       SE_SKIP_DRIVER_IN_PATH: 'true'
       SE_AVOID_BROWSER_DOWNLOAD: 'true'
       SE_AVOID_STATS: 'true'
 
     steps:
       - name: Validate inputs
-        env:
-          BROWSER_SIZE: ${{ inputs.browserSize }}
-          BROWSER: ${{ inputs.browser }}
+        shell: pwsh
         run: |
           # Absolute anchors also reject a trailing newline in .NET regexes.
-          if ($env:BROWSER_SIZE -cnotmatch '\A[0-9]{3,4}x[0-9]{3,4}\z') {
+          if ($env:UI_BROWSER_SIZE -cnotmatch '\A[0-9]{3,4}x[0-9]{3,4}\z') {
             throw 'browserSize must match WIDTHxHEIGHT with 3-4 digits per dimension.'
           }
-          if ($env:BROWSER -cne 'chrome') {
+          if ($env:UI_BROWSER -cne 'chrome') {
             throw 'Only Chrome is supported in CI.'
           }
 
@@ -66,26 +73,52 @@ jobs:
             gradle/wrapper/gradle-wrapper.properties
           cache-read-only: ${{ github.ref_name != github.event.repository.default_branch }}
 
+      - name: Allow Chrome sandbox to use user namespaces
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          if [[ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" != "0" ]]; then
+            echo "::error::Unprivileged user namespaces are still restricted"
+            exit 1
+          fi
+
       - name: Install Allure CLI
         timeout-minutes: 5
-        run: .\scripts\setup-allure.ps1
+        run: |
+          curl --fail --location --silent --show-error \
+            --proto '=https' --proto-redir '=https' \
+            --connect-timeout 10 --max-time 300 \
+            --output "$RUNNER_TEMP/allure.zip" \
+            "https://repo.maven.apache.org/maven2/io/qameta/allure/allure-commandline/$ALLURE_VERSION/allure-commandline-$ALLURE_VERSION.zip"
+          echo "$ALLURE_SHA256  $RUNNER_TEMP/allure.zip" | sha256sum --check --strict
+          unzip -q "$RUNNER_TEMP/allure.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/allure-$ALLURE_VERSION/bin" >> "$GITHUB_PATH"
+
+      - name: Verify Allure CLI version
+        run: |
+          actual="$(allure --version)"
+          echo "Allure CLI $actual"
+          if [[ "$actual" != "$ALLURE_VERSION" ]]; then
+            echo "::error::Expected Allure CLI $ALLURE_VERSION"
+            exit 1
+          fi
+
+      - name: Compile tests
+        id: compile
+        run: ./gradlew testClasses --no-daemon --console=plain
 
       - name: Run UI tests
         id: tests
         timeout-minutes: 10
-        env:
-          BROWSER_SIZE: ${{ inputs.browserSize }}
-          BROWSER: ${{ inputs.browser }}
-        run: |
-          .\gradlew.bat test --no-daemon --console=plain `
-            "-Dselenide.baseUrl=https://github.com" `
-            "-Dselenide.browser=$env:BROWSER" `
-            "-Dselenide.browserSize=$env:BROWSER_SIZE" `
-            "-Dselenide.headless=true"
+        run: >-
+          ./gradlew test --no-daemon --console=plain
+          "-Dselenide.baseUrl=https://github.com"
+          "-Dselenide.browser=$UI_BROWSER"
+          "-Dselenide.browserSize=$UI_BROWSER_SIZE"
+          "-Dselenide.headless=true"
 
       # Save raw evidence before generation, independently of the test outcome.
       - name: Upload Allure results and attachments
-        if: ${{ !cancelled() && hashFiles('build/allure-results/**') != '' }}
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' && hashFiles('build/allure-results/**') != '' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         timeout-minutes: 3
         with:
@@ -95,7 +128,7 @@ jobs:
           retention-days: 7
 
       - name: Upload JUnit XML and Gradle HTML
-        if: ${{ !cancelled() && (hashFiles('build/test-results/test/**') != '' || hashFiles('build/reports/tests/test/**') != '') }}
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' && (hashFiles('build/test-results/test/**') != '' || hashFiles('build/reports/tests/test/**') != '') }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         timeout-minutes: 3
         with:
@@ -108,20 +141,18 @@ jobs:
 
       - name: Generate Allure report
         id: report
-        if: ${{ !cancelled() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
         timeout-minutes: 5
         run: |
-          $results = @(Get-ChildItem -Path 'build/allure-results' -Filter '*-result.json' -File -ErrorAction SilentlyContinue)
-          if ($results.Count -eq 0) {
-            throw 'No Allure test results were produced; report was not generated.'
-          }
-          & .\.tools\allure-2.46.1\bin\allure.bat generate build/allure-results --clean -o build/allure-report
-          if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
-          }
-          if (-not (Test-Path -LiteralPath 'build/allure-report/index.html' -PathType Leaf)) {
-            throw 'Allure generation did not produce index.html.'
-          }
+          if ! compgen -G "build/allure-results/*-result.json" > /dev/null; then
+            echo "::error::No Allure test results were produced; report was not generated."
+            exit 1
+          fi
+          allure generate build/allure-results --clean -o build/allure-report
+          if [[ ! -f build/allure-report/index.html ]]; then
+            echo "::error::Allure generation did not produce index.html."
+            exit 1
+          fi
 
       - name: Upload generated Allure report
         if: ${{ !cancelled() && steps.report.outcome == 'success' }}
@@ -133,24 +164,26 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Upload Pages artifact
+        if: ${{ !cancelled() && steps.report.outcome == 'success' && github.ref_name == github.event.repository.default_branch }}
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: build/allure-report
+          retention-days: 7
+
       - name: Inspect JUnit evidence for notification
         id: evidence
-        if: ${{ !cancelled() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        shell: pwsh
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
         run: |
-          $evidence = 'invalid'
-          try {
-            . .\scripts\ci-telegram.ps1
-            $evidence = Get-UiTestEvidence -ResultsDirectory 'build/test-results/test'
-          }
-          catch {
-            Write-Warning 'JUnit evidence could not be inspected; the test result is unverified.'
-          }
+          . ./ci/ci-telegram.ps1
+          $evidence = Get-UiTestEvidence -ResultsDirectory 'build/test-results/test'
           "result=$evidence" >> $env:GITHUB_OUTPUT
 
-  telegram:
+  notify-telegram:
     needs: ui-tests
     if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && (needs.ui-tests.result == 'success' || needs.ui-tests.result == 'failure') }}
-    runs-on: windows-2022
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     # Only notification infrastructure is best-effort; never the UI tests.
     continue-on-error: true
@@ -189,7 +222,7 @@ jobs:
         run: |
           $delivery = 'failed'
           try {
-            . .\scripts\ci-telegram.ps1
+            . ./ci/ci-telegram.ps1
             $runUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
             $delivery = Send-CiTelegramNotification -BotToken $env:TELEGRAM_BOT_TOKEN -ChatId $env:TELEGRAM_CHAT_ID `
               -Project $env:GITHUB_REPOSITORY -Branch $env:GITHUB_REF_NAME -JobResult $env:UI_JOB_RESULT `
@@ -199,3 +232,19 @@ jobs:
             Write-Warning 'Telegram notification could not run; the UI job result is unchanged.'
           }
           "Telegram notification: $delivery. UI job: $env:UI_JOB_RESULT." >> $env:GITHUB_STEP_SUMMARY
+
+  deploy-report:
+    needs: ui-tests
+    if: ${{ !cancelled() && needs.ui-tests.outputs.report_generated == 'true' && github.ref_name == github.event.repository.default_branch }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
