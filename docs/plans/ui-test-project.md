@@ -15,7 +15,35 @@
 - [x] Обновить README: локальная установка закреплённого Allure без удалённого скрипта, команды Windows/Linux, `JAVA_HOME`, актуальные пути и источники настроек.
 - [x] Выполнить доступные локальные проверки без реальных уведомлений; записать команды, коды и ограничения. Временные проверки и искусственные ошибки выполнены на отдельной локальной ветке.
 - [x] Подготовить изменения к ревью; проверочный код и синтетические fixtures удалены.
-- [ ] Commit/push, удаление временной ветки и внешние запуски — только после отдельного разрешения.
+- [x] Commit выполнен по разрешению пользователя: `8b9b386` на ветке `ci/compact-layout-check`, рабочее дерево после него чистое; автор взят из истории репозитория через `git -c`, config не менялся.
+- [x] Перенос Actions на `ubuntu-24.04` и форму пайплайна magnus80 (три job'а) — согласовано пользователем после первого коммита; реализовано и проверено локально, см. раздел ниже.
+- [ ] Push, удаление временной ветки и внешние запуски — только после отдельного разрешения. Эта правка статуса сделана после коммита и остаётся незакоммиченной.
+
+### Миграция Actions на Ubuntu + форма эталона magnus80
+
+Согласовано: runner `ubuntu-24.04`, три job'а как у эталона (`ui-tests` → `notify-telegram` + `deploy-report`), чистка дублирования в скриптах. Источник формы: run [39406637416](https://github.com/magnus80/getting-started-java/actions/runs/39406637416) эталона, `ubuntu-24.04`, job'ы `ui-tests`/`notify-telegram`/`deploy-report`.
+
+Фактически изменено:
+
+- `ui-tests` на `ubuntu-24.04`: входы мапятся один раз в job env; валидация осталась pwsh (тот же `\A...\z`-regex, pwsh предустановлен в образе). Новые шаги: `Allow Chrome sandbox to use user namespaces` (sysctl + проверка — на Ubuntu 24.04 иначе падает sandbox), `Compile tests` (`gradlew testClasses`, отдельный outcome), `Verify Allure CLI version`. Chrome — из образа runner + Selenium Manager, как и было на Windows; закреплённый `browser-actions/setup-chrome` не вводился, чтобы не трогать `build.gradle`/TestBase.
+- Установка Allure переписана на bash и совпадает по смыслу с Jenkins-блоком: `curl` (proto=https, connect 10s / max 300s) → `sha256sum --check --strict` → `unzip` в `$RUNNER_TEMP` → `bin` через `GITHUB_PATH`; генерация отчёта — bash с `compgen -G`, сохранение кода генератора и проверка `index.html`. Версия/checksum вынесены в workflow env один раз.
+- `notify-telegram` (бывший `telegram`) на Ubuntu, `continue-on-error: true` сохранён; отправитель — тот же `ci/ci-telegram.ps1` через `pwsh`. Evidence по-прежнему через outputs, без скачивания артефактов.
+- `deploy-report`: `upload-pages-artifact` + `deploy-pages` (полные SHA, v5.0.0/v5.0.1), `permissions: pages: write, id-token: write`, environment `github-pages`, запуск только на ветке по умолчанию. Требует включённого Pages (Source: GitHub Actions) — зафиксировано в README.
+- `concurrency`: группа `${{ github.workflow }}-${{ github.ref }}`, `cancel-in-progress: false`.
+- Дедупликация: warning об evidence перенесён внутрь `Get-UiTestEvidence` (она уже возвращала `invalid`); внешние try/catch убраны из Actions-шага и `jenkins-telegram.ps1`. Транспорт, probing, сообщение и политика уведомлений не менялись.
+
+Проверено локально (внешние сервисы и Telegram не вызывались):
+
+| Команда / проверка | Exit | Результат |
+|---|---|---|
+| Groovy-harness над YAML (SnakeYAML, duplicate keys запрещены) | 0 | 26 структурных assertions: три job'а в порядке, ubuntu-runner, outputs, SHA-пины, concurrency, изоляция notify, pages permissions |
+| `bash -n` для 6 bash-блоков, `Parser::ParseFile` для 4 pwsh-блоков | 0 | Синтаксис всех извлечённых run-блоков корректен |
+| `python check_blocks.py` (Git Bash `-eo pipefail`, инструменты подменены) | 0 | 24 проверки: AppArmor ok/deny, install ok/mismatch/неверный пин/ошибка скачивания без распаковки, verify ok/drift, compile arg+exit 17, tests -D-аргументы и exit 23, report ok/нет результатов/exit 3/нет index |
+| `actionlint 1.7.12` (SHA-256 сверен с checksums.txt и digest GitHub API) | 0 | 0 замечаний по workflow |
+| `powershell.exe -ExecutionPolicy RemoteSigned -File ci/test-ci-telegram.ps1` | 0 | 248 assertions; новые Write-Warning видны в логе, возвращаемые значения не изменились |
+| `Parser::ParseFile` для `ci/*.ps1`, `git diff --check` | 0 | Синтаксис и whitespace чистые |
+
+Осталось непроверенным: исполнение движком Actions на реальном Ubuntu-runner (pwsh 7, sysctl, `unzip`, Chrome из образа), Pages-деплой (нужен включённый Pages + ветка по умолчанию), Jenkins на неизменённом Jenkinsfile, реальный Telegram-транспорт. Требует push и запуска — по отдельному разрешению.
 
 Принятый компромисс: файлов меньше, но установка инструментов увеличивает inline-блоки CI и требует двух платформенных реализаций установки Allure. Для локального использования установка описывается в README; прежние внешние вызовы `scripts/setup-*.ps1/sh` потребуют обновления. Ссылки в истории фаз и ретроспективе остаются историческим evidence, а не действующими командами.
 

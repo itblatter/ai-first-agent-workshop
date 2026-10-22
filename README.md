@@ -130,7 +130,13 @@ if ($LASTEXITCODE -ne 0 -or "$actualVersion".Trim() -ne $version) {
 
 ### GitHub Actions — `.github/workflows/ci.yml`
 
-Ручной `workflow_dispatch` (Actions → UI Tests → Run workflow), входы: `browser` (chrome), `browserSize` (`WIDTHxHEIGHT`). Job `ui-tests` на `windows-2022`: headless-тесты, загрузка `allure-results`, `gradle-test-reports`, `allure-report` (7 дней). Job `telegram` — одно уведомление по итогу; ошибки доставки не меняют статус `ui-tests`.
+Ручной `workflow_dispatch` (Actions → UI Tests → Run workflow), входы: `browser` (chrome), `browserSize` (`WIDTHxHEIGHT`). Три job'а на `ubuntu-24.04`:
+
+- `ui-tests` — валидация входов, AppArmor-фикс для Chrome-песочницы, установка Allure (curl + sha256sum → `$RUNNER_TEMP`, как в Jenkins), компиляция и headless-тесты на Chrome из образа, загрузка `allure-results`, `gradle-test-reports`, `allure-report` (7 дней).
+- `notify-telegram` — одно уведомление по итогу; ошибки доставки не меняют статус `ui-tests`. Шаги на `pwsh` (предустановлен в образе).
+- `deploy-report` — публикация `allure-report` в GitHub Pages, только на ветке по умолчанию (`github.ref_name == github.event.repository.default_branch`). Требует включённого Pages в настройках репозитория (Source: GitHub Actions).
+
+Параллельные запуски одной ветки ограничены `concurrency` (`cancel-in-progress: false`).
 
 Секреты репозитория: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
 
@@ -161,8 +167,8 @@ Post-обработка: JUnit (`build/test-results/test/TEST-*.xml`), архи�
 | Defaults браузера | `TestBase`: JVM `selenide.*` → `UI_*` env → default; пустая строка считается заданным значением |
 | Передача JVM-настроек | Allowlist шести свойств в `build.gradle`; в CI сохранены явные `-D` аргументы, а не только env |
 | Actions inputs | Один mapping `browser`/`browserSize` в `UI_BROWSER`/`UI_BROWSER_SIZE` у job `ui-tests` |
-| Allure version / SHA-256 ZIP | `ALLURE_VERSION` / `ALLURE_SHA256` в env тестового job Actions и в environment Jenkinsfile; оба закрепления нужно обновлять согласованно |
-| Путь Allure в Actions | Успешная установка записывает абсолютный `ALLURE_COMMAND` через `GITHUB_ENV`; генерация использует его |
+| Allure version / SHA-256 ZIP | `ALLURE_VERSION` / `ALLURE_SHA256` в env workflow Actions и в environment Jenkinsfile; оба закрепления нужно обновлять согласованно |
+| Путь Allure в Actions | Установка добавляет `bin` закреплённого CLI в `GITHUB_PATH`; генерация и проверка вызывают `allure` из PATH |
 | PowerShell Linux version / SHA-256 | `PWSH_VERSION` / `PWSH_SHA256` только в Jenkinsfile; используются и при установке, и при запуске уведомителя |
 | Gradle / Actions | Wrapper properties / полные SHA непосредственно в workflow |
 | Секреты | Actions secrets; Jenkins password-параметры и существующий fallback-файл; не смешиваются с версиями инструментов |
@@ -170,12 +176,13 @@ Post-обработка: JUnit (`build/test-results/test/TEST-*.xml`), архи�
 Повтор двух констант Allure между CI и примерами локальной установки — осознанный компромисс
 варианта с минимумом файлов. Общего конфигурационного файла и shell-парсера нет. Подготовка
 PowerShell использует игнорируемый `.tool-home/` только внутри установочного процесса.
-На Linux загрузка Allure теперь выполняется `curl` с connect timeout 10 секунд и общим
-timeout 300 секунд, без ретраев; Windows сохраняет `Invoke-WebRequest` и timeout шага 5 минут.
+Загрузка Allure в обоих CI выполняется `curl` с connect timeout 10 секунд и общим
+timeout 300 секунд, без ретраев; локальная Windows-установка сохраняет `Invoke-WebRequest`.
 
 ## Типовые проблемы
 
-- **`UI_BROWSER_SIZE must match WIDTHxHEIGHT`** — задайте размер вида `1920x1080`.
+- **`browserSize must match WIDTHxHEIGHT`** — задайте размер вида `1920x1080`.
+- **`Deploy to GitHub Pages` не запускается** — job `deploy-report` работает только на ветке по умолчанию и требует включённого Pages (Settings → Pages → Source: GitHub Actions).
 - **`parameter not set` / `SELENOID_USER and SELENOID_PASSWORD parameters are required`** — в Jenkins секреты не заполнены и `.ci-secrets.env` ещё не записан: заполните password-параметры один раз.
 - **`Telegram notification: failed`** — с агента Jenkins сетевой доступ до `api.telegram.org` нестабилен; отправитель сам зондирует известные IP и подключается к живому. Недоставка — warning, статус сборки не меняется.
 - **`No Allure test results were produced`** — тесты не успели записать результаты (падение до старта JVM); смотрите лог Gradle.

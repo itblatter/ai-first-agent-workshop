@@ -66,6 +66,7 @@ function Get-UiTestEvidence {
     }
     catch {
         # XML and paths may contain sensitive content; never print parser errors.
+        Write-Warning 'JUnit evidence could not be inspected; the test result is unverified.'
         return 'invalid'
     }
 }

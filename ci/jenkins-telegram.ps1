@@ -40,13 +40,7 @@ try {
         Write-Warning 'No pinned Telegram endpoint is reachable; the default resolver path will be used.'
     }
 
-    $evidence = 'invalid'
-    try {
-        $evidence = Get-UiTestEvidence -ResultsDirectory $ResultsDirectory
-    }
-    catch {
-        Write-Warning 'JUnit evidence could not be inspected; the test result is unverified.'
-    }
+    $evidence = Get-UiTestEvidence -ResultsDirectory $ResultsDirectory
 
     $delivery = Send-CiTelegramNotification `
         -BotToken $env:TELEGRAM_BOT_TOKEN `
