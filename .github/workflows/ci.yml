@@ -30,21 +30,22 @@ jobs:
       run:
         shell: pwsh
     env:
+      UI_BROWSER: ${{ inputs.browser }}
+      UI_BROWSER_SIZE: ${{ inputs.browserSize }}
+      ALLURE_VERSION: '2.46.1'
+      ALLURE_SHA256: d25c519bbde940dc953cff8901130ce18b73013dc19a8f8b90b8b4b1c5eb252f
       SE_SKIP_DRIVER_IN_PATH: 'true'
       SE_AVOID_BROWSER_DOWNLOAD: 'true'
       SE_AVOID_STATS: 'true'
 
     steps:
       - name: Validate inputs
-        env:
-          BROWSER_SIZE: ${{ inputs.browserSize }}
-          BROWSER: ${{ inputs.browser }}
         run: |
           # Absolute anchors also reject a trailing newline in .NET regexes.
-          if ($env:BROWSER_SIZE -cnotmatch '\A[0-9]{3,4}x[0-9]{3,4}\z') {
+          if ($env:UI_BROWSER_SIZE -cnotmatch '\A[0-9]{3,4}x[0-9]{3,4}\z') {
             throw 'browserSize must match WIDTHxHEIGHT with 3-4 digits per dimension.'
           }
-          if ($env:BROWSER -cne 'chrome') {
+          if ($env:UI_BROWSER -cne 'chrome') {
             throw 'Only Chrome is supported in CI.'
           }
 
@@ -68,19 +69,43 @@ jobs:
 
       - name: Install Allure CLI
         timeout-minutes: 5
-        run: .\scripts\setup-allure.ps1
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $version = $env:ALLURE_VERSION
+          $tools = Join-Path $env:GITHUB_WORKSPACE '.tools'
+          $archive = Join-Path $tools "allure-commandline-$version.zip"
+          $command = Join-Path $tools "allure-$version/bin/allure.bat"
+          if (-not $env:JAVA_HOME -or -not (Test-Path -LiteralPath (Join-Path $env:JAVA_HOME 'bin/java.exe'))) {
+            throw 'Set JAVA_HOME to an installed JDK before installing Allure.'
+          }
+          New-Item -ItemType Directory -Path $tools -Force | Out-Null
+          if (-not (Test-Path -LiteralPath $archive)) {
+            Invoke-WebRequest -UseBasicParsing `
+              -Uri "https://repo.maven.apache.org/maven2/io/qameta/allure/allure-commandline/$version/allure-commandline-$version.zip" `
+              -OutFile $archive
+          }
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $env:ALLURE_SHA256) {
+            throw 'Allure ZIP SHA-256 mismatch; the archive was not extracted.'
+          }
+          if (-not (Test-Path -LiteralPath $command)) {
+            Expand-Archive -LiteralPath $archive -DestinationPath $tools
+          }
+          $actualVersion = & $command --version
+          if ($LASTEXITCODE -ne 0 -or "$actualVersion".Trim() -ne $version) {
+            throw "Expected Allure Report $version, got: $actualVersion"
+          }
+          Write-Output "Allure Report $actualVersion is ready: $command"
+          "ALLURE_COMMAND=$command" >> $env:GITHUB_ENV
 
       - name: Run UI tests
         id: tests
         timeout-minutes: 10
-        env:
-          BROWSER_SIZE: ${{ inputs.browserSize }}
-          BROWSER: ${{ inputs.browser }}
         run: |
           .\gradlew.bat test --no-daemon --console=plain `
             "-Dselenide.baseUrl=https://github.com" `
-            "-Dselenide.browser=$env:BROWSER" `
-            "-Dselenide.browserSize=$env:BROWSER_SIZE" `
+            "-Dselenide.browser=$env:UI_BROWSER" `
+            "-Dselenide.browserSize=$env:UI_BROWSER_SIZE" `
             "-Dselenide.headless=true"
 
       # Save raw evidence before generation, independently of the test outcome.
@@ -115,7 +140,7 @@ jobs:
           if ($results.Count -eq 0) {
             throw 'No Allure test results were produced; report was not generated.'
           }
-          & .\.tools\allure-2.46.1\bin\allure.bat generate build/allure-results --clean -o build/allure-report
+          & $env:ALLURE_COMMAND generate build/allure-results --clean -o build/allure-report
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
@@ -139,7 +164,7 @@ jobs:
         run: |
           $evidence = 'invalid'
           try {
-            . .\scripts\ci-telegram.ps1
+            . .\ci\ci-telegram.ps1
             $evidence = Get-UiTestEvidence -ResultsDirectory 'build/test-results/test'
           }
           catch {
@@ -189,7 +214,7 @@ jobs:
         run: |
           $delivery = 'failed'
           try {
-            . .\scripts\ci-telegram.ps1
+            . .\ci\ci-telegram.ps1
             $runUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
             $delivery = Send-CiTelegramNotification -BotToken $env:TELEGRAM_BOT_TOKEN -ChatId $env:TELEGRAM_CHAT_ID `
               -Project $env:GITHUB_REPOSITORY -Branch $env:GITHUB_REF_NAME -JobResult $env:UI_JOB_RESULT `

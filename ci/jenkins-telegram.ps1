@@ -1,6 +1,10 @@
 # Thin Jenkins entry point for the phase-6 Telegram sender.
 # Reads only environment variables; never prints them. Always exits 0 so the
 # notification step can never change the UI test result.
+param(
+    [string]$ResultsDirectory = (Join-Path (Split-Path -Parent $PSScriptRoot) 'build/test-results/test')
+)
+
 $ErrorActionPreference = 'Continue'
 Set-StrictMode -Version Latest
 
@@ -38,7 +42,7 @@ try {
 
     $evidence = 'invalid'
     try {
-        $evidence = Get-UiTestEvidence -ResultsDirectory 'build/test-results/test'
+        $evidence = Get-UiTestEvidence -ResultsDirectory $ResultsDirectory
     }
     catch {
         Write-Warning 'JUnit evidence could not be inspected; the test result is unverified.'

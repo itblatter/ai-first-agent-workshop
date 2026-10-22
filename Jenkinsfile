@@ -16,6 +16,10 @@ pipeline {
     // password defaults.
 
     environment {
+        ALLURE_VERSION = '2.46.1'
+        ALLURE_SHA256 = 'd25c519bbde940dc953cff8901130ce18b73013dc19a8f8b90b8b4b1c5eb252f'
+        PWSH_VERSION = '7.6.7'
+        PWSH_SHA256 = '6896f9e3a6b0a354bf470835a96da76d2f801cd50dcf047ad7c4563bf93bf431'
         DOTNET_SYSTEM_GLOBALIZATION_INVARIANT = '1'
         POWERSHELL_TELEMETRY_OPTOUT = '1'
         POWERSHELL_UPDATECHECK = 'Off'
@@ -76,8 +80,88 @@ pipeline {
 
         stage('Prepare agent tools') {
             steps {
-                sh(label: 'Install portable pwsh and pinned Allure 2.46.1 into workspace',
-                   script: 'bash scripts/setup-agent-tools.sh')
+                sh(label: 'Install portable pwsh and pinned Allure into workspace', script: '''#!/bin/bash
+                    # Workspace-only tool bootstrap for the Jenkins agent.
+                    # Installs portable PowerShell 7.6.7 and pinned Allure Report 2 CLI 2.46.1
+                    # under .tools/ in the job workspace. Idempotent: existing tools are reused.
+                    # No system packages, no user changes, no global Jenkins configuration.
+                    set +x
+                    set -eu
+                    umask 022
+                    ulimit -c 0
+
+                    printf '%s\\n' 'AGENT_TOOLS_START: workspace-only tools, no system changes.'
+                    printf 'Kernel: '; uname -srm
+                    if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; then
+                        printf '%s\\n' 'BLOCKED: pinned archives require Linux x86_64.'
+                        exit 20
+                    fi
+                    for tool in curl tar sha256sum git unzip; do
+                        if ! command -v "$tool" >/dev/null 2>&1; then
+                            printf 'BLOCKED: prerequisite command unavailable: %s\\n' "$tool"
+                            exit 21
+                        fi
+                    done
+
+                    tools_dir="$PWD/.tools"
+                    tool_home="$PWD/.tool-home"
+                    mkdir -p "$tools_dir" "$tool_home"
+                    export HOME="$tool_home"
+                    export XDG_CACHE_HOME="$tool_home/cache"
+                    export XDG_CONFIG_HOME="$tool_home/config"
+                    export DOTNET_CLI_HOME="$tool_home"
+                    pwsh_dir="$tools_dir/powershell-$PWSH_VERSION"
+                    pwsh_bin="$pwsh_dir/pwsh"
+                    pwsh_archive="$tools_dir/powershell-$PWSH_VERSION-linux-x64.tar.gz"
+                    if [ ! -x "$pwsh_bin" ]; then
+                        if [ ! -f "$pwsh_archive" ]; then
+                            printf 'DOWNLOAD powershell-%s\\n' "$PWSH_VERSION"
+                            if ! curl --disable --fail --location --silent --proto '=https' --proto-redir '=https' \
+                                --connect-timeout 10 --max-time 300 \
+                                --output "$pwsh_archive" \
+                                "https://github.com/PowerShell/PowerShell/releases/download/v$PWSH_VERSION/powershell-$PWSH_VERSION-linux-x64.tar.gz"; then
+                                printf 'BLOCKED: PowerShell download failed; no retry.\\n'
+                                exit 22
+                            fi
+                        fi
+                        printf '%s  %s\\n' "$PWSH_SHA256" "$pwsh_archive" | sha256sum --check -
+                        mkdir -p "$pwsh_dir"
+                        tar --extract --gzip --file "$pwsh_archive" \
+                            --directory "$pwsh_dir" --no-same-owner --no-same-permissions
+                        chmod a+x "$pwsh_bin"
+                    fi
+                    # The agent image has no libicu; run portable PowerShell in invariant mode.
+                    "$pwsh_bin" -NoLogo -NoProfile -NonInteractive -Command \
+                        'if ($PSVersionTable.PSVersion.ToString() -ne $env:PWSH_VERSION) { throw "Unexpected PowerShell version." }; "PowerShell " + $PSVersionTable.PSVersion.ToString()'
+                    printf '%s\\n' 'PWSH_READY'
+
+                    if [ -z "${JAVA_HOME:-}" ] || [ ! -f "$JAVA_HOME/bin/java" ]; then
+                        printf '%s\\n' 'Set JAVA_HOME to an installed JDK before installing Allure.'
+                        exit 1
+                    fi
+                    allure_archive="$tools_dir/allure-commandline-$ALLURE_VERSION.zip"
+                    allure_bin="$tools_dir/allure-$ALLURE_VERSION/bin/allure"
+                    if [ ! -f "$allure_archive" ]; then
+                        curl --disable --fail --location --silent --proto '=https' --proto-redir '=https' \
+                            --connect-timeout 10 --max-time 300 --output "$allure_archive" \
+                            "https://repo.maven.apache.org/maven2/io/qameta/allure/allure-commandline/$ALLURE_VERSION/allure-commandline-$ALLURE_VERSION.zip"
+                    fi
+                    printf '%s  %s\\n' "$ALLURE_SHA256" "$allure_archive" | sha256sum --check -
+                    if [ ! -f "$allure_bin" ]; then
+                        unzip -q "$allure_archive" -d "$tools_dir"
+                    fi
+                    chmod a+x "$allure_bin"
+                    actual_version="$("$allure_bin" --version)"
+                    if [ "$actual_version" != "$ALLURE_VERSION" ]; then
+                        printf 'Expected Allure Report %s, got: %s\\n' "$ALLURE_VERSION" "$actual_version"
+                        exit 1
+                    fi
+                    if [ ! -x "$allure_bin" ]; then
+                        printf '%s\\n' 'BLOCKED: Allure launcher missing after installer.'
+                        exit 30
+                    fi
+                    printf 'AGENT_TOOLS_READY: portable pwsh + pinned Allure %s.\\n' "$ALLURE_VERSION"
+                ''')
             }
         }
 
@@ -125,10 +209,10 @@ pipeline {
                 // Pinned Allure Report 2 CLI generates the canonical report artifact
                 // even when tests failed, as long as raw results exist.
                 try {
-                    sh(label: 'Generate Allure report with pinned CLI 2.46.1', script: '''
+                    sh(label: 'Generate Allure report with pinned CLI', script: '''
                         set -eu
                         if [ -d build/allure-results ] && ls build/allure-results/*-result.json >/dev/null 2>&1; then
-                            "$PWD/.tools/allure-2.46.1/bin/allure" generate build/allure-results \
+                            "$PWD/.tools/allure-$ALLURE_VERSION/bin/allure" generate build/allure-results \
                                 --clean -o build/allure-report
                         else
                             echo 'No Allure test results were produced; report was not generated.'
@@ -168,8 +252,8 @@ pipeline {
                         env.UI_BRANCH = env.GIT_BRANCH ?: 'main'
                         sh(label: 'Send Telegram notification via existing sender', script: '''
                                 set +x
-                                "$PWD/.tools/powershell-7.6.7/pwsh" -NoLogo -NoProfile -NonInteractive \
-                                    -File scripts/jenkins-telegram.ps1
+                                "$PWD/.tools/powershell-$PWSH_VERSION/pwsh" -NoLogo -NoProfile -NonInteractive \
+                                    -File ci/jenkins-telegram.ps1
                             ''')
                     } catch (Throwable telegramError) {
                         echo "Telegram step failed: ${telegramError.getMessage()}"

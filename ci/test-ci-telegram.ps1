@@ -10,7 +10,7 @@ function Assert-True {
 }
 
 $build = Join-Path (Split-Path -Parent $PSScriptRoot) 'build'
-Get-Item -LiteralPath $build -ErrorAction Stop | Out-Null
+New-Item -ItemType Directory -Path $build -Force | Out-Null
 $fixtures = Join-Path $build ("phase6-tests-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $fixtures | Out-Null
 $pass = '<testsuite name="tests.SearchTests" tests="1" failures="0" errors="0" skipped="0"><testcase name="pass"/></testsuite>'
